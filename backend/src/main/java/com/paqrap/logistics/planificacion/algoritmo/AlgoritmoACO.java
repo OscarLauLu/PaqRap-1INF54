@@ -72,6 +72,11 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
         if (params.containsKey("rhoEvaporacion")) config.setRho(params.get("rhoEvaporacion"));
         if (params.containsKey("rho")) config.setRho(params.get("rho"));
         if (params.containsKey("umbralCriticidadMin")) config.setUmbralCriticidadMin(params.get("umbralCriticidadMin"));
+        if (params.containsKey("semilla")) setSemilla(params.get("semilla").longValue());
+    }
+
+    public void setSemilla(long seed) {
+        this.random.setSeed(seed);
     }
 
     @Override
@@ -79,6 +84,8 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
         if (pedidos == null || pedidos.isEmpty() || flota == null || flota.isEmpty()) {
             return new ArrayList<>();
         }
+
+        this.pheromone.clear();
 
         log.info("Ejecutando {} con {} pedidos y {} unidades disponibles...",
                 obtenerNombre(), pedidos.size(), flota.size());

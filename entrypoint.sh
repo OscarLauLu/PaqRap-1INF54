@@ -1,8 +1,13 @@
 #!/bin/sh
 set -e
 
-# Modo 1: Benchmark nativo Java (ACO vs ALNS)
-if [ "$1" = "benchmark" ] || [ "$1" = "bench" ]; then
+# Modo 1: Experimento formal 5D (ACO vs ALNS con réplicas pareadas)
+if [ "$1" = "experimento" ] || [ "$1" = "exp" ]; then
+    shift
+    exec java -jar /app/app.jar --experimento "$@"
+
+# Modo 2: Benchmark nativo Java (ACO vs ALNS)
+elif [ "$1" = "benchmark" ] || [ "$1" = "bench" ]; then
     shift
     exec java -jar /app/app.jar --benchmark "$@"
 

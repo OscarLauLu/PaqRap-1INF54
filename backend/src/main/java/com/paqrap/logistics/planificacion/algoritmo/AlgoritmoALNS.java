@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Metaheurístico de Búsqueda Adaptativa de Gran Vecindario (ALNS)
@@ -45,6 +46,7 @@ import java.util.Map;
 public class AlgoritmoALNS implements AlgoritmoRuteo {
 
     private final AlmacenRepository almacenRepository;
+    private Random random = new Random();
 
     private double temperaturaInicial = 100.0;    // T0 = 100
     private double enfriamiento = 0.95;           // c = 0.95
@@ -54,6 +56,10 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
     private PlanSolution actual;
     private PlanSolution mejor;
     private double costoUltimaSolucion = 0.0;
+
+    public void setSemilla(long seed) {
+        this.random = new Random(seed);
+    }
 
     public AlgoritmoALNS() {
         this.almacenRepository = null;
@@ -80,6 +86,7 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
         if (params.containsKey("enfriamiento")) this.enfriamiento = params.get("enfriamiento");
         if (params.containsKey("factorDestruccion")) this.factorDestruccion = params.get("factorDestruccion");
         if (params.containsKey("limiteMillis")) this.limiteMillis = params.get("limiteMillis").longValue();
+        if (params.containsKey("semilla")) setSemilla(params.get("semilla").longValue());
     }
 
     @Override
@@ -109,7 +116,7 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
         List<RepairOperator> reparadores = new ArrayList<>();
 
         // Operadores generales
-        destructores.add(new RandomRemovalOperator());
+        destructores.add(new RandomRemovalOperator(this.random));
         destructores.add(new CostRemovalOperator());
 
         // Operadores de dominio
@@ -170,13 +177,13 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
     private boolean aceptar(double costoActual, double costoCandidata, double temp) {
         if (costoCandidata < costoActual) return true;
         if (temp <= 0.0) return false;
-        return Math.random() < Math.exp((costoActual - costoCandidata) / temp);
+        return random.nextDouble() < Math.exp((costoActual - costoCandidata) / temp);
     }
 
     private <T extends PonderableOperator> T seleccionarPorPeso(List<T> operadores) {
         double suma = operadores.stream().mapToDouble(PonderableOperator::getPeso).sum();
-        if (suma <= 0.0) return operadores.get((int) (Math.random() * operadores.size()));
-        double rand = Math.random() * suma;
+        if (suma <= 0.0) return operadores.get(random.nextInt(operadores.size()));
+        double rand = random.nextDouble() * suma;
         double acc = 0.0;
         for (T op : operadores) {
             acc += op.getPeso();
