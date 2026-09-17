@@ -15,7 +15,19 @@ import java.util.Random;
  */
 public class RandomRemovalOperator extends DestroyOperator {
 
-    private final Random random = new Random();
+    private final Random random;
+
+    public RandomRemovalOperator() {
+        this.random = new Random();
+    }
+
+    public RandomRemovalOperator(Random random) {
+        this.random = random != null ? random : new Random();
+    }
+
+    public void setSemilla(long seed) {
+        this.random.setSeed(seed);
+    }
 
     @Override
     public String getNombre() {

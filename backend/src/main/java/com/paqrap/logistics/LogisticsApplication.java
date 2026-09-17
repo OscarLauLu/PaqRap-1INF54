@@ -1,6 +1,7 @@
 package com.paqrap.logistics;
 
 import com.paqrap.logistics.planificacion.algoritmo.BenchmarkMetaheuristicas;
+import com.paqrap.logistics.planificacion.algoritmo.Experimento5DRunner;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -22,6 +23,24 @@ public class LogisticsApplication {
     @Bean
     public CommandLineRunner benchmarkCommandLineRunner(ApplicationArguments appArgs) {
         return args -> {
+            if (appArgs.containsOption("experimento") || appArgs.containsOption("exp5d") || "true".equalsIgnoreCase(System.getenv("RUN_EXPERIMENTO"))) {
+                java.util.List<String> expArgs = new java.util.ArrayList<>();
+                for (String opt : appArgs.getOptionNames()) {
+                    if ("experimento".equalsIgnoreCase(opt) || "exp5d".equalsIgnoreCase(opt)) continue;
+                    java.util.List<String> vals = appArgs.getOptionValues(opt);
+                    if (vals.isEmpty()) {
+                        expArgs.add("--" + opt);
+                    } else {
+                        expArgs.add("--" + opt + "=" + vals.get(0));
+                    }
+                }
+                for (String nonOpt : appArgs.getNonOptionArgs()) {
+                    expArgs.add(nonOpt);
+                }
+                Experimento5DRunner.main(expArgs.toArray(new String[0]));
+                System.exit(0);
+            }
+
             if (appArgs.containsOption("benchmark") || "true".equalsIgnoreCase(System.getenv("RUN_BENCHMARK"))) {
                 String mes = null;
                 String archivoVentas = null;
