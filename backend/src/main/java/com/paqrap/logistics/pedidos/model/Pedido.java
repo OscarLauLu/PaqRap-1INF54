@@ -72,6 +72,7 @@ public class Pedido {
 
     private Long unidadAsignadaId;
     private Long rutaAsignadaId;
+    private String codigoPadre;
 
     @PrePersist
     public void prePersist() {

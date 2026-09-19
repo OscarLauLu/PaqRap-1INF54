@@ -72,6 +72,8 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
         if (params.containsKey("rhoEvaporacion")) config.setRho(params.get("rhoEvaporacion"));
         if (params.containsKey("rho")) config.setRho(params.get("rho"));
         if (params.containsKey("umbralCriticidadMin")) config.setUmbralCriticidadMin(params.get("umbralCriticidadMin"));
+        if (params.containsKey("tau0")) config.setTau0(params.get("tau0"));
+        if (params.containsKey("pheromoneMin")) config.setPheromoneMin(params.get("pheromoneMin"));
         if (params.containsKey("semilla")) setSemilla(params.get("semilla").longValue());
     }
 
@@ -84,8 +86,6 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
         if (pedidos == null || pedidos.isEmpty() || flota == null || flota.isEmpty()) {
             return new ArrayList<>();
         }
-
-        this.pheromone.clear();
 
         log.info("Ejecutando {} con {} pedidos y {} unidades disponibles...",
                 obtenerNombre(), pedidos.size(), flota.size());
@@ -167,6 +167,10 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
             if (esMejor(mejorIteracion, mejorGlobal)) {
                 mejorGlobal = mejorIteracion;
             }
+            // Depósito elitista: la mejor global también refuerza (Elitist Ant System)
+            if (mejorGlobal != null) {
+                reforzar(origen, mejorGlobal, red);
+            }
         }
 
         return construirRouteDesdeHormiga(vehiculo, mejorGlobal, horaInicio);
@@ -182,14 +186,33 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
         double costoKm = (vehiculo.getTipo() != null) ? vehiculo.getTipo().getCostoPorKm() : 8.0;
 
         while (true) {
+            // 1. PRE-FILTRADO RÁPIDO (Candidate List)
+            List<Pedido> posibles = new ArrayList<>();
+            for (Pedido o : pedidosPendientes) {
+                if (!ant.yaAtendio(o) && (ant.getCargaAcumulada() + o.getCantidadUnidades() <= capacidadMax)) {
+                    posibles.add(o);
+                }
+            }
+
+            // 2. ORDENAR POR CERCANÍA MANHATTAN (Cálculo ultrarrápido O(1))
+            final Nodo currFinal = current;
+            posibles.sort((o1, o2) -> {
+                Ubicacion d1 = o1.getDestino() != null ? o1.getDestino() : new Ubicacion(27, 14);
+                Ubicacion d2 = o2.getDestino() != null ? o2.getDestino() : new Ubicacion(27, 14);
+                int dist1 = Math.abs(currFinal.getX() - d1.getPosX()) + Math.abs(currFinal.getY() - d1.getPosY());
+                int dist2 = Math.abs(currFinal.getX() - d2.getPosX()) + Math.abs(currFinal.getY() - d2.getPosY());
+                return Integer.compare(dist1, dist2);
+            });
+
+            // 3. RECORTAR A LOS K MEJORES (K=20)
+            int K = Math.min(20, posibles.size());
+            List<Pedido> candidateList = posibles.subList(0, K);
+
             List<Pedido> candidatos = new ArrayList<>();
             Map<Pedido, Double> distancias = new HashMap<>();
             Map<Pedido, LocalDateTime> llegadas = new HashMap<>();
 
-            for (Pedido o : pedidosPendientes) {
-                if (ant.yaAtendio(o)) continue;
-                if (ant.getCargaAcumulada() + o.getCantidadUnidades() > capacidadMax) continue;
-
+            for (Pedido o : candidateList) {
                 Ubicacion dest = o.getDestino() != null ? o.getDestino() : new Ubicacion(27, 14);
                 Nodo nodoCliente = red.obtenerNodo(dest.getPosX(), dest.getPosY());
                 if (nodoCliente == null) continue;
@@ -209,6 +232,7 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
                 distancias.put(o, d);
                 llegadas.put(o, llegada);
             }
+
 
             if (candidatos.isEmpty()) break;
 
@@ -279,7 +303,7 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
 
     private void evaporar() {
         for (Map<String, Double> fila : pheromone.values()) {
-            fila.replaceAll((k, v) -> Math.max(0.001, v * (1.0 - config.getRho())));
+            fila.replaceAll((k, v) -> Math.max(config.getPheromoneMin(), v * (1.0 - config.getRho())));
         }
     }
 
@@ -295,13 +319,14 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
     }
 
     private double getPheromone(Nodo a, Nodo b) {
-        if (a == null || b == null) return 1.0;
-        return pheromone.computeIfAbsent(a.getClave(), k -> new ConcurrentHashMap<>()).getOrDefault(b.getClave(), 1.0);
+        if (a == null || b == null) return config.getTau0();
+        return pheromone.computeIfAbsent(a.getClave(), k -> new ConcurrentHashMap<>()).getOrDefault(b.getClave(), config.getTau0());
     }
 
     private void addPheromone(Nodo a, Nodo b, double delta) {
         if (a == null || b == null) return;
-        pheromone.computeIfAbsent(a.getClave(), k -> new ConcurrentHashMap<>()).merge(b.getClave(), delta, Double::sum);
+        pheromone.computeIfAbsent(a.getClave(), k -> new ConcurrentHashMap<>())
+                 .merge(b.getClave(), config.getTau0() + delta, (oldVal, newVal) -> oldVal + delta);
     }
 
     private boolean esMejor(Hormiga candidata, Hormiga actual) {

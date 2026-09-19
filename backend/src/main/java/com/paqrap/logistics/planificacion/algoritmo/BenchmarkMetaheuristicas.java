@@ -234,29 +234,31 @@ public class BenchmarkMetaheuristicas {
         System.out.println("Flota total creada  : " + flotaAco.size() + " unidades");
 
         // 4.1. Aplicar Mantenimiento Preventivo según la fecha de los pedidos (RF-42 / Pregunta 19 FAQ)
-        Map<LocalDate, List<String>> mantenimientos = cargador.cargarMantenimientosPreventivos(rutaMantenimiento);
-        LocalDate fechaSimulada = pedidosPrueba.get(0).getFechaHoraRegistro().toLocalDate();
-        List<String> vehiculosEnMant = mantenimientos.get(fechaSimulada);
-        if (vehiculosEnMant != null && !vehiculosEnMant.isEmpty()) {
-            System.out.println("\n" + "-".repeat(80));
-            System.out.println("  [MANTENIMIENTO PREVENTIVO RF-42] Restricción de flota para fecha " + fechaSimulada + ":");
-            for (String cod : vehiculosEnMant) {
-                System.out.println("  -> Unidad " + cod + ": En mantenimiento programado -> Inhabilitada 00:00 - 23:59");
+        List<com.paqrap.logistics.flota.model.Mantenimiento> mantenimientos = cargador.cargarMantenimientosPreventivos(rutaMantenimiento);
+        LocalDateTime inicioSimulacion = pedidosPrueba.get(0).getFechaHoraRegistro();
+        System.out.println("\n" + "-".repeat(80));
+        System.out.println("  [MANTENIMIENTO PREVENTIVO RF-42] Restricciones activas para " + inicioSimulacion + ":");
+        boolean hayMant = false;
+        for (com.paqrap.logistics.flota.model.Mantenimiento mant : mantenimientos) {
+            if (mant.estaActivoEn(inicioSimulacion)) {
+                hayMant = true;
+                System.out.println("  -> Unidad " + mant.getCodigoVehiculo() + ": En taller hasta " + mant.getFechaHoraFin() + " -> Inhabilitada");
                 for (UnidadTransporte u : flotaAco) {
-                    if (cod.equalsIgnoreCase(u.getCodigo())) {
+                    if (mant.getCodigoVehiculo().equalsIgnoreCase(u.getCodigo())) {
                         u.cambiarEstado(EstadoOperativo.EN_MANTENIMIENTO);
                         u.setActivo(false);
                     }
                 }
                 for (UnidadTransporte u : flotaAlns) {
-                    if (cod.equalsIgnoreCase(u.getCodigo())) {
+                    if (mant.getCodigoVehiculo().equalsIgnoreCase(u.getCodigo())) {
                         u.cambiarEstado(EstadoOperativo.EN_MANTENIMIENTO);
                         u.setActivo(false);
                     }
                 }
             }
-            System.out.println("-".repeat(80));
         }
+        if (!hayMant) System.out.println("  (Ninguna unidad en mantenimiento en este momento)");
+        System.out.println("-".repeat(80));
 
         // 4.2. Evaluar si se solicita contingencia por averías mecánicas (RF-14, RF-15)
         boolean conAveria = false;
@@ -314,9 +316,9 @@ public class BenchmarkMetaheuristicas {
 
     public static List<UnidadTransporte> crearFlotaDinamica(String rutaMantenimiento, Integer nAutos, Integer nMotos, Integer nBicis) {
         List<UnidadTransporte> flota = new ArrayList<>();
-        TipoVehiculo auto = TipoVehiculo.builder().id(1L).nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(20.0).costoPorKm(8.0).build();
-        TipoVehiculo moto = TipoVehiculo.builder().id(2L).nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(40.0).costoPorKm(6.0).build();
-        TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(14.0).costoPorKm(3.0).build();
+        TipoVehiculo auto = TipoVehiculo.builder().id(1L).nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
+        TipoVehiculo moto = TipoVehiculo.builder().id(2L).nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
+        TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
 
         Set<String> codigosEncontrados = new TreeSet<>();
         if (rutaMantenimiento != null && new File(rutaMantenimiento).exists()) {
