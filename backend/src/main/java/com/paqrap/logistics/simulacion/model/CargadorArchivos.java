@@ -98,19 +98,34 @@ public class CargadorArchivos {
                                 .ubicacionEntrega(new Ubicacion(x, y))
                                 .build();
 
-                        Pedido pedido = Pedido.builder()
-                                .id((long) numLinea)
-                                .codigo("PED-" + numLinea + "-" + UUID.randomUUID().toString().substring(0, 6))
-                                .cantidadUnidades(cantidad)
-                                .fechaHoraRegistro(regTime)
-                                .tipoEntrega(tipo)
-                                .plazoLimiteEntrega(regTime.plusHours(tipo.getHorasPlazo()))
-                                .estado(EstadoPedido.REGISTRADO)
-                                .destino(new Ubicacion(x, y))
-                                .cliente(cliente)
-                                .build();
-
-                        pedidos.add(pedido);
+                        String baseCodigo = "PED-" + numLinea + "-" + UUID.randomUUID().toString().substring(0, 6);
+                        int restante = cantidad;
+                        int maxCapacidad = 24;
+                        int sub = 1;
+                        while (restante > 0) {
+                            int cantSub = Math.min(restante, maxCapacidad);
+                            String codFinal = baseCodigo;
+                            String codPadre = null;
+                            if (cantidad > maxCapacidad) {
+                                codFinal = baseCodigo + "-SUB" + sub;
+                                codPadre = baseCodigo;
+                            }
+                            Pedido pedido = Pedido.builder()
+                                    .id((long) numLinea * 1000 + sub)
+                                    .codigo(codFinal)
+                                    .codigoPadre(codPadre)
+                                    .cantidadUnidades(cantSub)
+                                    .fechaHoraRegistro(regTime)
+                                    .tipoEntrega(tipo)
+                                    .plazoLimiteEntrega(regTime.plusHours(tipo.getHorasPlazo()))
+                                    .estado(EstadoPedido.REGISTRADO)
+                                    .destino(new Ubicacion(x, y))
+                                    .cliente(cliente)
+                                    .build();
+                            pedidos.add(pedido);
+                            restante -= cantSub;
+                            sub++;
+                        }
                     } catch (Exception e) {
                         log.error("Error procesando línea {} de pedidos: {}", numLinea, e.getMessage());
                     }
@@ -245,11 +260,11 @@ public class CargadorArchivos {
      * Formato oficial: aaaammdd:TTNN (ej. 20260901:TA01)
      * Retorna un mapa: Fecha -> Lista de códigos de vehículos en mantenimiento.
      */
-    public java.util.Map<java.time.LocalDate, List<String>> cargarMantenimientosPreventivos(String rutaArchivo) {
-        java.util.Map<java.time.LocalDate, List<String>> mantMap = new java.util.HashMap<>();
+    public List<com.paqrap.logistics.flota.model.Mantenimiento> cargarMantenimientosPreventivos(String rutaArchivo) {
+        List<com.paqrap.logistics.flota.model.Mantenimiento> mantList = new ArrayList<>();
         if (!validarFormato(rutaArchivo)) {
             log.warn("Archivo de mantenimiento preventivo no encontrado o inaccesible: {}", rutaArchivo);
-            return mantMap;
+            return mantList;
         }
 
         try (BufferedReader br = new BufferedReader(new FileReader(rutaArchivo))) {
@@ -270,7 +285,21 @@ public class CargadorArchivos {
                             int mes = Integer.parseInt(fechaStr.substring(4, 6));
                             int dia = Integer.parseInt(fechaStr.substring(6, 8));
                             java.time.LocalDate fecha = java.time.LocalDate.of(anio, mes, dia);
-                            mantMap.computeIfAbsent(fecha, k -> new ArrayList<>()).add(codigoVehiculo);
+                            LocalDateTime inicio = fecha.atStartOfDay();
+                            LocalDateTime fin;
+                            if (codigoVehiculo.startsWith("TB")) {
+                                fin = inicio.plusHours(8).minusSeconds(1);
+                            } else if (codigoVehiculo.startsWith("TA")) {
+                                fin = inicio.plusDays(2).minusSeconds(1);
+                            } else {
+                                fin = inicio.plusDays(1).minusSeconds(1);
+                            }
+                            com.paqrap.logistics.flota.model.Mantenimiento m = com.paqrap.logistics.flota.model.Mantenimiento.builder()
+                                .codigoVehiculo(codigoVehiculo)
+                                .fechaHoraInicio(inicio)
+                                .fechaHoraFin(fin)
+                                .build();
+                            mantList.add(m);
                         } catch (Exception ex) {
                             log.warn("Línea {}: Formato de fecha inválido '{}'", numLinea, fechaStr);
                         }
@@ -281,8 +310,8 @@ public class CargadorArchivos {
             log.error("Error al leer archivo de mantenimiento preventivo: {}", e.getMessage());
         }
 
-        log.info("Cargados registros de mantenimiento para {} días desde {}", mantMap.size(), rutaArchivo);
-        return mantMap;
+        log.info("Cargados {} registros de mantenimiento desde {}", mantList.size(), rutaArchivo);
+        return mantList;
     }
 
     private TipoEntrega mapearTipoEntrega(int horas) {

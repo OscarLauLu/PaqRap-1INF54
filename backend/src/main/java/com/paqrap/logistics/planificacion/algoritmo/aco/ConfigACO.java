@@ -32,5 +32,11 @@ public class ConfigACO {
     private double rho = 0.1;   // Tasa de evaporación de feromonas (0 < rho < 1)
 
     @Builder.Default
+    private double tau0 = 1.0;
+
+    @Builder.Default
+    private double pheromoneMin = 0.001;
+
+    @Builder.Default
     private double umbralCriticidadMin = 240.0; // 4 horas en minutos (RF-04)
 }

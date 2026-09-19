@@ -14,7 +14,9 @@ import com.paqrap.logistics.planificacion.algoritmo.alns.DestroyOperator;
 import com.paqrap.logistics.planificacion.algoritmo.alns.HolguraGreedyRepairOperator;
 import com.paqrap.logistics.planificacion.algoritmo.alns.PlanSolution;
 import com.paqrap.logistics.planificacion.algoritmo.alns.PonderableOperator;
+import com.paqrap.logistics.planificacion.algoritmo.alns.RandomInsertionRepairOperator;
 import com.paqrap.logistics.planificacion.algoritmo.alns.RandomRemovalOperator;
+import com.paqrap.logistics.planificacion.algoritmo.alns.RegretInsertionRepairOperator;
 import com.paqrap.logistics.planificacion.algoritmo.alns.RepairOperator;
 import com.paqrap.logistics.planificacion.model.Ruta;
 import com.paqrap.logistics.redvial.model.RedVial;
@@ -36,8 +38,13 @@ import java.util.Random;
  * Incluye los 5 operadores de destrucción descritos en la sección 3.3:
  * - 2 generales: RandomRemovalOperator, CostRemovalOperator
  * - 3 de dominio: CapacidadAlmacenDestroyOperator, BloqueoDestroyOperator, AveriaDestroyOperator
- * Y el operador de reparación voraz por holgura (HolguraGreedyRepairOperator).
+ * Y 4 operadores de reparación con selección adaptativa:
+ * - HolguraGreedyRepairOperator (inserción voraz por holgura)
+ * - RegretInsertionRepairOperator(k=2) y (k=3) (Ropke & Pisinger, 2006)
+ * - RandomInsertionRepairOperator (diversificación)
  * La aceptación se rige por Recocido Simulado (Simulated Annealing).
+ * Los pesos de los operadores se actualizan por segmentos de iteraciones (λ=0.3).
+ * Puntuación con 3 niveles: σ₁=3.0 (nueva mejor global), σ₂=2.0 (mejor que actual), σ₃=1.0 (aceptada por SA).
  */
 @Slf4j
 @Getter
@@ -48,10 +55,11 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
     private final AlmacenRepository almacenRepository;
     private Random random = new Random();
 
-    private double temperaturaInicial = 100.0;    // T0 = 100
-    private double enfriamiento = 0.95;           // c = 0.95
-    private double factorDestruccion = 0.20;       // 20%
-    private long limiteMillis = 2000;              // Límite de tiempo en ms por ejecución
+    private double temperaturaInicial = 1000.0;    // T0 = 1000 (más iteraciones de exploración)
+    private double enfriamiento = 0.9995;           // c = 0.9995 (~13,800 iteraciones hasta T=0.1)
+    private double factorDestruccion = 0.20;        // 20%
+    private long limiteMillis = 5000;               // Límite de tiempo en ms por ejecución
+    private int segmentSize = 100;                  // Tamaño de segmento para actualización de pesos
 
     private PlanSolution actual;
     private PlanSolution mejor;
@@ -86,6 +94,7 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
         if (params.containsKey("enfriamiento")) this.enfriamiento = params.get("enfriamiento");
         if (params.containsKey("factorDestruccion")) this.factorDestruccion = params.get("factorDestruccion");
         if (params.containsKey("limiteMillis")) this.limiteMillis = params.get("limiteMillis").longValue();
+        if (params.containsKey("segmentSize")) this.segmentSize = params.get("segmentSize").intValue();
         if (params.containsKey("semilla")) setSemilla(params.get("semilla").longValue());
     }
 
@@ -124,12 +133,19 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
         destructores.add(new BloqueoDestroyOperator(red));
         destructores.add(new AveriaDestroyOperator(flota));
 
-        // Operador de reparación guiado por holgura
+        // Operador de reparación voraz por holgura
         reparadores.add(new HolguraGreedyRepairOperator(red, almacenes, flota));
+        // Operador de reparación Regret-2 (Ropke & Pisinger)
+        reparadores.add(new RegretInsertionRepairOperator(red, almacenes, flota, 2));
+        // Operador de reparación Regret-3 (Ropke & Pisinger)
+        reparadores.add(new RegretInsertionRepairOperator(red, almacenes, flota, 3));
+        // Operador de reparación por inserción aleatoria (diversificación)
+        reparadores.add(new RandomInsertionRepairOperator(red, almacenes, flota, this.random));
 
         // 3. Bucle metaheurístico ALNS con Recocido Simulado
         long inicio = System.currentTimeMillis();
         double temperatura = this.temperaturaInicial;
+        int iteracionSegmento = 0;
 
         while ((System.currentTimeMillis() - inicio) < limiteMillis && temperatura > 0.1) {
             DestroyOperator destructor = seleccionarPorPeso(destructores);
@@ -143,26 +159,40 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
                 double costoActual = actual.costoTotal();
                 double costoCandidata = candidata.costoTotal();
 
-                if (aceptar(costoActual, costoCandidata, temperatura)) {
+                if (costoCandidata < mejor.costoTotal()) {
+                    // σ₁: nueva mejor solución global
                     actual = candidata;
-                    if (costoCandidata < mejor.costoTotal()) {
-                        mejor = candidata.clonar();
-                        destructor.reforzar(3.0);
-                        reparador.reforzar(3.0);
-                    } else {
-                        destructor.reforzar(1.0);
-                        reparador.reforzar(1.0);
-                    }
+                    mejor = candidata.clonar();
+                    destructor.reforzar(3.0);
+                    reparador.reforzar(3.0);
+                } else if (costoCandidata < costoActual) {
+                    // σ₂: mejor que la solución actual (pero no global)
+                    actual = candidata;
+                    destructor.reforzar(2.0);
+                    reparador.reforzar(2.0);
+                } else if (aceptar(costoActual, costoCandidata, temperatura)) {
+                    // σ₃: peor pero aceptada por Simulated Annealing
+                    actual = candidata;
+                    destructor.reforzar(1.0);
+                    reparador.reforzar(1.0);
                 } else {
+                    // Rechazada
                     destructor.reforzar(0.1);
                     reparador.reforzar(0.1);
                 }
             } else {
+                // Infactible
                 destructor.reforzar(0.1);
                 reparador.reforzar(0.1);
             }
 
-            actualizarPesos(destructores, reparadores);
+            // Actualización de pesos por segmento (cada segmentSize iteraciones)
+            iteracionSegmento++;
+            if (iteracionSegmento >= segmentSize) {
+                actualizarPesos(destructores, reparadores);
+                iteracionSegmento = 0;
+            }
+
             temperatura *= enfriamiento;
         }
 
