@@ -162,7 +162,11 @@ public class MotorSimulacion {
             }
         }, 0, 500, TimeUnit.MILLISECONDS);
 
-        return construirResultado(escenario);
+        ResultadoSimulacion inicial = new ResultadoSimulacion();
+        inicial.setEscenario(escenario.name());
+        inicial.setFechaHoraInicio(inicioSim);
+        inicial.setTotalPedidos(pedidosProgramados.size());
+        return inicial;
     }
 
     /**
@@ -226,6 +230,7 @@ public class MotorSimulacion {
         }
         if (estado == EstadoEjecucion.EN_EJECUCION) {
             estado = EstadoEjecucion.FINALIZADA;
+            construirResultado(TipoEscenario.valueOf(parametros != null ? "DIA_A_DIA" : "SIMULACION_5D")); // Guarda el resultado real al terminar
         }
         log.info("Motor de simulación detenido.");
     }
