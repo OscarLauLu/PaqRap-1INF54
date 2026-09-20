@@ -1,6 +1,6 @@
 export interface Ubicacion {
-  x: number;
-  y: number;
+  posX: number;
+  posY: number;
 }
 
 export interface Almacen {

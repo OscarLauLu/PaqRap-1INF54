@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
  * Cada parada incluye un tiempo fijo de servicio de 60 minutos (RF-09).
  */
 @Data
+@lombok.EqualsAndHashCode(of = "id")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
