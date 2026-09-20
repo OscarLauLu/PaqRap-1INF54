@@ -30,6 +30,7 @@ import java.util.List;
  * Representa una unidad vehicular de transporte de la flota (RF-39 a RF-50).
  */
 @Data
+@lombok.EqualsAndHashCode(of = "id")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
