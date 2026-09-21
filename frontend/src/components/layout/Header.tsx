@@ -6,6 +6,9 @@ interface HeaderProps {
   totalAlertas?: number;
   userName?: string;
   isSimulating?: boolean;
+  title?: string;
+  subtitle?: string;
+  showFinalizar?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -13,21 +16,29 @@ export const Header: React.FC<HeaderProps> = ({
   totalAlertas = 0,
   userName = 'Jones Ferdinand',
   isSimulating = true,
+  title = 'Simulación 5D',
+  subtitle,
+  showFinalizar = true,
 }) => {
   return (
     <header className="h-16 bg-white border-b border-gray-200 px-8 flex items-center justify-between">
       {/* Title */}
-      <h1 className="text-xl font-bold text-gray-800 tracking-tight">Simulación 5D</h1>
+      <div>
+        <h1 className="text-xl font-bold text-gray-800 tracking-tight leading-tight">{title}</h1>
+        {subtitle && <p className="text-xs text-gray-400 leading-tight">{subtitle}</p>}
+      </div>
 
       {/* Right controls */}
       <div className="flex items-center gap-5">
         {/* Red action button */}
-        <button
-          onClick={onFinalizarSimulacion}
-          className="bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-medium px-5 py-2 rounded-lg text-sm shadow-sm shadow-red-300 transition-all flex items-center gap-2 cursor-pointer"
-        >
-          {isSimulating ? 'Finalizar Simulación' : 'Simulación Detenida'}
-        </button>
+        {showFinalizar && (
+          <button
+            onClick={onFinalizarSimulacion}
+            className="bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-medium px-5 py-2 rounded-lg text-sm shadow-sm shadow-red-300 transition-all flex items-center gap-2 cursor-pointer"
+          >
+            {isSimulating ? 'Finalizar Simulación' : 'Simulación Detenida'}
+          </button>
+        )}
 
         {/* Search button */}
         <button

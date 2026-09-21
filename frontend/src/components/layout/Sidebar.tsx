@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal, Box, Lightbulb } from 'lucide-react';
+import { SlidersHorizontal, Box, Lightbulb, ClipboardList } from 'lucide-react';
 
 interface SidebarProps {
   activeSection?: string;
@@ -28,6 +28,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Navigation items */}
       <nav className="p-4 space-y-1.5 flex-1">
+        <button
+          onClick={() => onSelectSection && onSelectSection('registro')}
+          className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+            activeSection === 'registro'
+              ? 'bg-blue-50 text-blue-700 font-semibold'
+              : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          <span>Registro</span>
+        </button>
+
         <button
           onClick={() => onSelectSection && onSelectSection('configuracion')}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
