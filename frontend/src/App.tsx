@@ -3,6 +3,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { MapaOperaciones } from './components/mapa/MapaOperaciones';
 import { RightPanel } from './components/panel/RightPanel';
+import { RegistroPage } from './components/registro/RegistroPage';
 import { Play, Pause, Square } from 'lucide-react';
 
 import { useAlmacenes } from './hooks/useAlmacenes';
@@ -32,14 +33,26 @@ export const App: React.FC = () => {
   };
 
   const diaActual = reloj.diaSimulado || 1;
+  const enRegistro = activeSection === 'registro';
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc] text-gray-800">
       <Sidebar activeSection={activeSection} onSelectSection={setActiveSection} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <Header onFinalizarSimulacion={finalizarSimulacion} totalAlertas={0} isSimulating={reloj.estadoEjecucion === 'EN_EJECUCION'} userName="Jones Ferdinand" />
+        <Header
+          onFinalizarSimulacion={finalizarSimulacion}
+          totalAlertas={0}
+          isSimulating={reloj.estadoEjecucion === 'EN_EJECUCION'}
+          userName="Jones Ferdinand"
+          title={enRegistro ? 'Registro' : 'Simulación 5D'}
+          subtitle={enRegistro ? 'Gestiona la información de pedidos, avería y bloqueos para la simulación' : undefined}
+          showFinalizar={!enRegistro}
+        />
 
+        {enRegistro ? (
+          <RegistroPage />
+        ) : (
         <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
           
           {/* Top Bar - Controls */}
@@ -73,6 +86,7 @@ export const App: React.FC = () => {
           </div>
 
         </main>
+        )}
       </div>
     </div>
   );
