@@ -1,7 +1,7 @@
 # ==============================================================================
 # ETAPA 1: Compilación de la aplicación Java con Maven
 # ==============================================================================
-FROM maven:3.9.6-eclipse-temurin-17-alpine AS builder
+FROM maven:3.9.6-eclipse-temurin-17 AS builder
 
 WORKDIR /build
 
@@ -16,7 +16,7 @@ RUN mvn clean package -Dmaven.test.skip=true
 # ==============================================================================
 # ETAPA 2: Imagen final ligera de ejecución (Eclipse Temurin 17 JRE Alpine)
 # ==============================================================================
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre
 
 LABEL maintainer="PaqRap Logistics <support@paqrap.com>"
 LABEL description="Sistema Logístico PaqRap - Benchmark y API de Algoritmos Metaheurísticos"
@@ -24,7 +24,6 @@ LABEL description="Sistema Logístico PaqRap - Benchmark y API de Algoritmos Met
 WORKDIR /app
 
 # Instalar bash para scripts de inicio
-RUN apk add --no-cache bash
 
 # Copiar el ejecutable compilado
 COPY --from=builder /build/target/logistics-backend-*.jar /app/app.jar
