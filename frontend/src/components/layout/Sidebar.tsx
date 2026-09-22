@@ -7,7 +7,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  activeSection = 'simulacion',
+  activeSection = 'configuracion',
   onSelectSection,
 }) => {
   return (
@@ -61,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }`}
         >
           <Box className="w-4 h-4 text-gray-600" />
-          <span>Simulación 5D</span>
+          <span>Simulación</span>
         </button>
 
         <button

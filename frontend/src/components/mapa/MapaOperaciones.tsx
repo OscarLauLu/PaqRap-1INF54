@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Almacen, Pedido, UnidadTransporte } from '../../types';
+import { Almacen, BloqueoVial, Pedido, UnidadTransporte } from '../../types';
 import { Car, Bike } from 'lucide-react';
 import { LeyendaMapa } from './LeyendaMapa';
 
@@ -9,7 +9,16 @@ interface MapaOperacionesProps {
   pedidos: Pedido[];
   selectedUnidadId: number | null;
   onSelectUnidad: (id: number) => void;
+  /** Opcional: si no se pasa, el mapa se ve exactamente igual que antes. */
+  bloqueos?: BloqueoVial[];
 }
+
+/** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */
+const parsePuntos = (texto: string): Array<[number, number]> =>
+  Array.from(
+    (texto || '').matchAll(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/g),
+    (m) => [Number(m[1]), Number(m[2])] as [number, number],
+  );
 
 export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   almacenes,
@@ -17,6 +26,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   pedidos,
   selectedUnidadId,
   onSelectUnidad,
+  bloqueos = [],
 }) => {
   const [showLeyenda, setShowLeyenda] = useState(false);
 
@@ -42,6 +52,25 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
             <line key={`h-${i}`} x1={0} y1={i} x2={70} y2={i} />
           ))}
         </g>
+
+        {/* Bloqueos de calle (solo si se pasan) */}
+        {bloqueos
+          .filter((b) => b.activo)
+          .map((b) => {
+            const pts = parsePuntos(b.coordenadasNodos);
+            if (pts.length < 2) return null;
+            const linea = pts.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+            const medio = pts[Math.floor(pts.length / 2)] as [number, number];
+            const mx = toSvgX(medio[0]);
+            const my = toSvgY(medio[1]);
+            return (
+              <g key={`bloqueo-${b.id}`} className="select-none">
+                <polyline points={linea} fill="none" stroke="#111827" strokeWidth="0.35" strokeLinecap="round" strokeLinejoin="round" />
+                <rect x={mx - 0.8} y={my - 0.5} width="1.6" height="1" rx="0.2" fill="#DC2626" />
+                <text x={mx + 1.2} y={my - 0.6} fontSize="0.9" fontWeight="bold" fill="#111827">Bloqueo</text>
+              </g>
+            );
+          })}
 
         {/* Marcadores de Clientes / Pedidos */}
         {pedidos.map((p) => {
