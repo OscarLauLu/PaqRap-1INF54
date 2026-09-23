@@ -1,14 +1,14 @@
 package com.paqrap.logistics.almacen.model;
 
 import com.paqrap.logistics.redvial.model.Ubicacion;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.DiscriminatorColumn;
 import jakarta.persistence.DiscriminatorType;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Inheritance;
 import jakarta.persistence.InheritanceType;
@@ -26,35 +26,40 @@ import java.util.stream.Collectors;
 
 /**
  * Clase base abstracta para los almacenes del sistema logístico (RF-17 a RF-25).
+ * Clave natural (codigo) según docs/62.dis.base.datos.postgresql.v01.md.
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "almacenes")
+@Table(name = "almacen")
 @Inheritance(strategy = InheritanceType.SINGLE_TABLE)
 @DiscriminatorColumn(name = "tipo_almacen", discriminatorType = DiscriminatorType.STRING)
 public abstract class Almacen {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
     private String codigo;
 
     private String nombre;
 
     @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "posX", column = @Column(name = "ubicacion_x")),
+            @AttributeOverride(name = "posY", column = @Column(name = "ubicacion_y"))
+    })
     private Ubicacion ubicacion;
 
+    /**
+     * NULL = stock infinito (solo AlmacenCentral). Ver CHECK de la tabla "almacen" en el documento 62.
+     */
     @Column(name = "stock_actual")
-    private int stockActual;
+    private Integer stockActual;
 
     @OneToMany(mappedBy = "almacen", cascade = CascadeType.ALL)
     @ToString.Exclude
     private List<MovimientoInventario> movimientos = new ArrayList<>();
 
-    public Almacen(String codigo, String nombre, Ubicacion ubicacion, int stockActual) {
+    public Almacen(String codigo, String nombre, Ubicacion ubicacion, Integer stockActual) {
         this.codigo = codigo;
         this.nombre = nombre;
         this.ubicacion = ubicacion;

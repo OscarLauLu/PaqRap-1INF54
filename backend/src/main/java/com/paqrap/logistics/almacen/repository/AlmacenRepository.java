@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface AlmacenRepository extends JpaRepository<Almacen, Long> {
+public interface AlmacenRepository extends JpaRepository<Almacen, String> {
     Optional<Almacen> findByCodigo(String codigo);
     Optional<Almacen> findByNombreIgnoreCase(String nombre);
 }

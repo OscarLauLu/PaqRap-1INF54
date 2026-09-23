@@ -1,5 +1,9 @@
 package com.paqrap.logistics.flota.model;
 
+import com.paqrap.logistics.redvial.model.Ubicacion;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -14,19 +18,20 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 
 /**
  * Representa la asignación de un conductor a una unidad para un turno y fecha específicos (RF-43, RF-44).
+ * Tabla "asignacion_turno" (antes "asignaciones_turno") según docs/62.dis.base.datos.postgresql.v01.md.
+ * "turno" pasa de value object embebido a FK contra el catálogo real {@link Turno}.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "asignaciones_turno")
+@Table(name = "asignacion_turno")
 public class AsignacionTurno {
 
     @Id
@@ -34,14 +39,15 @@ public class AsignacionTurno {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "conductor_id")
+    @JoinColumn(name = "conductor_codigo")
     private Conductor conductor;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "unidad_id")
+    @JoinColumn(name = "unidad_codigo")
     private UnidadTransporte unidad;
 
-    @Embedded
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "turno_id")
     private Turno turno;
 
     private LocalDate fecha;
@@ -50,6 +56,13 @@ public class AsignacionTurno {
 
     @Builder.Default
     private int duracionAlimentacionMin = 60;
+
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "posX", column = @Column(name = "ubicacion_relevo_x")),
+            @AttributeOverride(name = "posY", column = @Column(name = "ubicacion_relevo_y"))
+    })
+    private Ubicacion ubicacionRelevo;
 
     /**
      * Valida que el conductor esté asignado a uno de los 3 turnos oficiales (RF-44).

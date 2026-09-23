@@ -18,7 +18,8 @@ import java.util.UUID;
 public class AlmacenCentral extends Almacen {
 
     public AlmacenCentral(String codigo, String nombre, Ubicacion ubicacion) {
-        super(codigo, nombre, ubicacion, 999999);
+        // stock infinito: stock_actual queda NULL, exigido por el CHECK de la tabla "almacen" (documento 62)
+        super(codigo, nombre, ubicacion, null);
     }
 
     @Override

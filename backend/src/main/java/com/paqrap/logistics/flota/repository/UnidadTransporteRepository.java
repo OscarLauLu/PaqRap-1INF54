@@ -9,15 +9,17 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface UnidadTransporteRepository extends JpaRepository<UnidadTransporte, Long> {
+public interface UnidadTransporteRepository extends JpaRepository<UnidadTransporte, String> {
 
     Optional<UnidadTransporte> findByCodigo(String codigo);
 
-    List<UnidadTransporte> findByActivoTrue();
+    // Antes findByActivoTrue(): el campo persistido pasó a llamarse "dadaDeBaja" (semántica invertida).
+    List<UnidadTransporte> findByDadaDeBajaFalse();
 
     List<UnidadTransporte> findByEstadoOperativo(EstadoOperativo estado);
 
-    List<UnidadTransporte> findByActivoTrueAndEstadoOperativo(EstadoOperativo estado);
+    // Antes findByActivoTrueAndEstadoOperativo(estado)
+    List<UnidadTransporte> findByDadaDeBajaFalseAndEstadoOperativo(EstadoOperativo estado);
 
     List<UnidadTransporte> findByTipoNombreIgnoreCase(String tipoNombre);
 

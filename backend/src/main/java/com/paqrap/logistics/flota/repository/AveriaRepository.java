@@ -11,5 +11,6 @@ import java.util.Optional;
 public interface AveriaRepository extends JpaRepository<Averia, Long> {
     Optional<Averia> findByCodigo(String codigo);
     List<Averia> findByResueltaFalse();
-    List<Averia> findByUnidadId(Long unidadId);
+    // Antes findByUnidadId(Long): UnidadTransporte usa ahora "codigo" (String) como PK.
+    List<Averia> findByUnidadCodigo(String unidadCodigo);
 }

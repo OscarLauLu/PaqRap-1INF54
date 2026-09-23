@@ -56,7 +56,8 @@ public class Visualizador {
     public List<Map<String, Object>> refrescarEstadoUnidades() {
         return unidadRepository.findAll().stream().map(u -> {
             Map<String, Object> datos = new HashMap<>();
-            datos.put("id", u.getId());
+            // "id" ahora expone el codigo (String): UnidadTransporte usa clave natural, ya no Long id.
+            datos.put("id", u.getCodigo());
             datos.put("codigo", u.getCodigo());
             datos.put("tipo", u.getTipo() != null ? u.getTipo().getNombre() : "DESCONOCIDO");
             datos.put("estadoOperativo", u.getEstadoOperativo().name());
