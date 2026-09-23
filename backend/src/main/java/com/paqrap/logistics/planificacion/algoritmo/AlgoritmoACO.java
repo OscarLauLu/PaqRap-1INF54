@@ -95,39 +95,69 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
                 .filter(java.util.Objects::nonNull)
                 .min(LocalDateTime::compareTo)
                 .orElse(LocalDateTime.now());
+                
         List<Pedido> pedidosPendientes = new ArrayList<>(pedidos);
         List<Ruta> rutasGeneradas = new ArrayList<>();
         double costoTotalGlobal = 0.0;
 
-        for (UnidadTransporte vehiculo : flota) {
-            if (pedidosPendientes.isEmpty()) break;
-            if (!vehiculo.isActivo() || (vehiculo.getEstadoOperativo() != null && vehiculo.getEstadoOperativo() != EstadoOperativo.DISPONIBLE)) {
-                continue;
-            }
+        // Mantener el estado de tiempo y ubicación de cada vehículo (permitir re-uso en 5 días)
+        Map<UnidadTransporte, LocalDateTime> vehiculoDisponibleDesde = new HashMap<>();
+        Map<UnidadTransporte, Nodo> vehiculoUbicacionActual = new HashMap<>();
+        
+        for (UnidadTransporte v : flota) {
+            vehiculoDisponibleDesde.put(v, horaSimulada);
+            Ubicacion ubicacionVehiculo = v.getUbicacionActual() != null ? v.getUbicacionActual() : new Ubicacion(27, 14);
+            Nodo nodo = red.obtenerNodo(ubicacionVehiculo.getPosX(), ubicacionVehiculo.getPosY());
+            if (nodo == null) nodo = new Nodo(27, 14);
+            vehiculoUbicacionActual.put(v, nodo);
+        }
 
-            Ubicacion ubicacionVehiculo = vehiculo.getUbicacionActual() != null
-                    ? vehiculo.getUbicacionActual() : new Ubicacion(27, 14);
-            Nodo nodoOrigen = red.obtenerNodo(ubicacionVehiculo.getPosX(), ubicacionVehiculo.getPosY());
-            if (nodoOrigen == null) {
-                nodoOrigen = new Nodo(27, 14);
-            }
+        while (!pedidosPendientes.isEmpty()) {
+            boolean huboProgreso = false;
+            
+            // Ordenar flota para despachar primero al vehículo que se libera antes.
+            // En caso de empate (ej: inicio del día), priorizar los de MENOR capacidad (Bicis y Motos)
+            // para que los Autos grandes no acaparen todos los pedidos pequeños cercanos.
+            flota.sort((v1, v2) -> {
+                int cmpTime = vehiculoDisponibleDesde.get(v1).compareTo(vehiculoDisponibleDesde.get(v2));
+                if (cmpTime != 0) return cmpTime;
+                int cap1 = (v1.getTipo() != null) ? v1.getTipo().getCapacidadMaxima() : 24;
+                int cap2 = (v2.getTipo() != null) ? v2.getTipo().getCapacidadMaxima() : 24;
+                return Integer.compare(cap1, cap2);
+            });
 
-            // Construir la mejor ruta para este vehículo usando ACO
-            Ruta rutaVehiculo = runAcoParaVehiculo(vehiculo, nodoOrigen, pedidosPendientes, red, horaSimulada);
-            if (rutaVehiculo != null && !rutaVehiculo.getParadas().isEmpty()) {
-                rutasGeneradas.add(rutaVehiculo);
-                costoTotalGlobal += rutaVehiculo.getCostoTotal();
-
-                // Remover pedidos atendidos por esta unidad
-                for (ParadaRuta parada : rutaVehiculo.getParadas()) {
-                    pedidosPendientes.remove(parada.getPedido());
+            for (UnidadTransporte vehiculo : flota) {
+                if (pedidosPendientes.isEmpty()) break;
+                if (!vehiculo.isActivo() || (vehiculo.getEstadoOperativo() != null && vehiculo.getEstadoOperativo() != EstadoOperativo.DISPONIBLE)) {
+                    continue;
                 }
 
-                // Actualizar carga del vehículo
-                int cargaRuta = rutaVehiculo.getParadas().stream()
-                        .mapToInt(p -> p.getPedido() != null ? p.getPedido().getCantidadUnidades() : 0)
-                        .sum();
-                vehiculo.setCargaActual(cargaRuta);
+                LocalDateTime tiempoInicio = vehiculoDisponibleDesde.get(vehiculo);
+                Nodo nodoOrigen = vehiculoUbicacionActual.get(vehiculo);
+
+                // Construir la mejor ruta para este vehículo usando ACO
+                Ruta rutaVehiculo = runAcoParaVehiculo(vehiculo, nodoOrigen, pedidosPendientes, red, tiempoInicio);
+                
+                if (rutaVehiculo != null && !rutaVehiculo.getParadas().isEmpty()) {
+                    rutasGeneradas.add(rutaVehiculo);
+                    costoTotalGlobal += rutaVehiculo.getCostoTotal();
+                    huboProgreso = true;
+
+                    // Remover pedidos atendidos por esta unidad
+                    for (ParadaRuta parada : rutaVehiculo.getParadas()) {
+                        pedidosPendientes.remove(parada.getPedido());
+                    }
+
+                    // Actualizar el tiempo de disponibilidad (vuelve al almacén o termina su ruta)
+                    LocalDateTime nuevoTiempo = tiempoInicio.plusMinutes(rutaVehiculo.getTiempoEstimadoMin());
+                    vehiculoDisponibleDesde.put(vehiculo, nuevoTiempo);
+                }
+            }
+            
+            if (!huboProgreso) {
+                // Evitar bucle infinito si ningún vehículo puede armar rutas (ej: todos bloqueados)
+                log.warn("ACO no pudo armar rutas para los pedidos restantes ({} pendientes). Se aborta la iteración.", pedidosPendientes.size());
+                break;
             }
         }
 
@@ -152,14 +182,26 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
 
         Hormiga mejorGlobal = null;
         for (int it = 0; it < config.getIterations(); it++) {
+            
+            // Procesamiento en Paralelo: Multihilo nativo de Java para explotar todos los núcleos (vCPUs)
+            final LocalDateTime tInicio = horaInicio;
+            List<Hormiga> hormigas = java.util.stream.IntStream.range(0, m)
+                    .parallel()
+                    .mapToObj(k -> {
+                        Hormiga ant = new Hormiga();
+                        construirRuta(ant, vehiculo, origen, pedidosPendientes, red, tInicio);
+                        return ant;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+
+            // Buscar la mejor hormiga de esta ronda
             Hormiga mejorIteracion = null;
-            for (int k = 0; k < m; k++) {
-                Hormiga ant = new Hormiga();
-                construirRuta(ant, vehiculo, origen, pedidosPendientes, red, horaInicio);
+            for (Hormiga ant : hormigas) {
                 if (ant.cumpleTodosLosPlazos() && esMejor(ant, mejorIteracion)) {
                     mejorIteracion = ant;
                 }
             }
+
             evaporar();
             if (mejorIteracion != null) {
                 reforzar(origen, mejorIteracion, red);
@@ -204,21 +246,26 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
                 return Integer.compare(dist1, dist2);
             });
 
-            // 3. RECORTAR A LOS K MEJORES (K=20)
-            int K = Math.min(20, posibles.size());
-            List<Pedido> candidateList = posibles.subList(0, K);
-
             List<Pedido> candidatos = new ArrayList<>();
             Map<Pedido, Double> distancias = new HashMap<>();
             Map<Pedido, LocalDateTime> llegadas = new HashMap<>();
 
-            for (Pedido o : candidateList) {
+            // 3. EVALUAR Y FILTRAR HASTA OBTENER K=20 CANDIDATOS VIABLES (ignorando bloqueados)
+            int[][] matrizDistancias = red.distanciasDesde(current, tiempo);
+            
+            for (Pedido o : posibles) {
                 Ubicacion dest = o.getDestino() != null ? o.getDestino() : new Ubicacion(27, 14);
                 Nodo nodoCliente = red.obtenerNodo(dest.getPosX(), dest.getPosY());
                 if (nodoCliente == null) continue;
 
-                double d = red.distanciaMinima(current, nodoCliente, tiempo);
-                if (d == Double.MAX_VALUE) continue; // sin camino libre por bloqueos viales (RF-12)
+                double d;
+                if (matrizDistancias == null) {
+                    d = red.calcularDistancia(current, nodoCliente);
+                } else {
+                    int dist = matrizDistancias[dest.getPosX()][dest.getPosY()];
+                    if (dist == -1) continue; // No hay ruta libre de bloqueos
+                    d = (double) dist;
+                }
 
                 double tiempoViajeHoras = d / velocidadKmH;
                 long minutosViaje = (long) Math.ceil(tiempoViajeHoras * 60.0);
@@ -231,6 +278,9 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
                 candidatos.add(o);
                 distancias.put(o, d);
                 llegadas.put(o, llegada);
+                
+                // Detenerse al encontrar K=20 candidatos que SÍ son viables
+                if (candidatos.size() >= 20) break;
             }
 
 

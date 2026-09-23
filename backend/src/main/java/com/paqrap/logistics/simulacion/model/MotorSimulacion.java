@@ -7,11 +7,11 @@ import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.AveriaRepository;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
-import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.Pedido;
 import com.paqrap.logistics.pedidos.repository.PedidoRepository;
 import com.paqrap.logistics.planificacion.model.Planificador;
 import com.paqrap.logistics.planificacion.model.Ruta;
+import com.paqrap.logistics.planificacion.model.EstadoRuta;
 import com.paqrap.logistics.redvial.model.Bloqueo;
 import com.paqrap.logistics.redvial.repository.BloqueoRepository;
 import com.paqrap.logistics.simulacion.repository.ResultadoSimulacionRepository;
@@ -49,11 +49,14 @@ public class MotorSimulacion {
     private final Planificador planificador;
     private final CargadorArchivos cargadorArchivos;
     private final PedidoRepository pedidoRepository;
+    private final com.paqrap.logistics.pedidos.repository.ClienteRepository clienteRepository;
     private final UnidadTransporteRepository unidadRepository;
     private final AlmacenRepository almacenRepository;
     private final BloqueoRepository bloqueoRepository;
     private final AveriaRepository averiaRepository;
+    private final com.paqrap.logistics.planificacion.repository.RutaRepository rutaRepository;
     private final ResultadoSimulacionRepository resultadoRepository;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     @Getter
     private ParametrosSimulacion parametros;
@@ -64,15 +67,38 @@ public class MotorSimulacion {
     private List<Averia> averiasProgramadas = new ArrayList<>();
 
     // Métricas acumuladas en tiempo real
+    @Getter
     private int totalPedidosIngresados = 0;
+    @Getter
     private int pedidosEnPlazo = 0;
+    @Getter
     private int pedidosTarde = 0;
     private double costoAuto = 0.0;
     private double costoMoto = 0.0;
     private double costoBici = 0.0;
+    @Getter
     private int entregasAuto = 0;
+    @Getter
     private int entregasMoto = 0;
+    @Getter
     private int entregasBici = 0;
+    @Getter
+    private int bloqueosOcurridos = 0;
+    @Getter
+    private int averiasOcurridas = 0;
+
+    public double getCostoAuto() { return costoAuto; }
+    public double getCostoMoto() { return costoMoto; }
+    public double getCostoBici() { return costoBici; }
+    public double getCostoAcumuladoTotal() { return costoAuto + costoMoto + costoBici; }
+
+    @Getter
+    private TipoEscenario escenarioActual;
+
+    @Getter
+    private LocalDateTime instanteColapsoDetectado;
+    @Getter
+    private Integer volumenPedidosColapsoDetectado;
 
     private LocalDateTime instanteInicioEjecucionReal;
 
@@ -101,14 +127,34 @@ public class MotorSimulacion {
      * Inicia la ejecución de uno de los 3 escenarios soportados (RF-65, RF-66, RF-67).
      */
     public ResultadoSimulacion ejecutar(TipoEscenario escenario) {
-        if (parametros == null) {
-            configurar(ParametrosSimulacion.builder().build());
+        if (parametros == null || pedidosProgramados.isEmpty()) {
+            // Auto-load default data files if no prior configuration
+            ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
+            defaultParams.setArchivoPedidos("datos/ventas.v20260909/ventas.202609.txt");
+            defaultParams.setArchivoBloqueos("datos/bloqueos/bloqueo.2609.txt");
+            configurar(defaultParams);
+            log.info("Auto-configurado con archivos por defecto: {} pedidos, {} bloqueos",
+                    pedidosProgramados.size(), bloqueosProgramados.size());
         }
 
         this.estado = EstadoEjecucion.EN_EJECUCION;
         this.instanteInicioEjecucionReal = LocalDateTime.now();
+        this.escenarioActual = escenario;
 
-        // Configuración del reloj según escenario
+        // Reset metrics for new run
+        this.totalPedidosIngresados = 0;
+        this.pedidosEnPlazo = 0;
+        this.pedidosTarde = 0;
+        this.costoAuto = 0.0;
+        this.costoMoto = 0.0;
+        this.costoBici = 0.0;
+        this.entregasAuto = 0;
+        this.entregasMoto = 0;
+        this.entregasBici = 0;
+        this.bloqueosOcurridos = 0;
+        this.averiasOcurridas = 0;
+        this.instanteColapsoDetectado = null;
+        this.volumenPedidosColapsoDetectado = null;
         LocalDateTime inicioSim = LocalDateTime.of(2026, 9, 1, 0, 0, 0);
         double factorAceleracion;
         switch (escenario) {
@@ -130,35 +176,67 @@ public class MotorSimulacion {
         log.info("Iniciando escenario [{}] con aceleración {}", escenario.getDescripcion(), factorAceleracion);
 
         // Arrancar ciclo periódico de simulación
+        if (executorService != null && !executorService.isShutdown()) {
+            executorService.shutdownNow();
+        }
         executorService = Executors.newSingleThreadScheduledExecutor();
         executorService.scheduleAtFixedRate(() -> {
+            if (estado != EstadoEjecucion.EN_EJECUCION) return;
+
+            // Avanza según el tiempo real transcurrido, escalado por el factor de aceleración del escenario.
+            reloj.avanzar(java.time.Duration.ofMillis(500));
+            LocalDateTime instanteActual = reloj.getInstanteActual();
+
+            // --- Transacción 1: Procesar eventos (nuevos pedidos, bloqueos, averías) ---
             try {
-                if (estado == EstadoEjecucion.EN_EJECUCION) {
-                    // Avanzar 10 minutos simulados por tick
-                    reloj.avanzar(10);
-                    procesarEventos(reloj.getInstanteActual());
+                transactionTemplate.executeWithoutResult(status -> {
+                    procesarEventos(instanteActual);
+                });
+            } catch (Exception e) {
+                log.error("Error procesando eventos en instante {}: {}", instanteActual, e.getMessage());
+            }
 
-                    // Ciclo de planificación de rutas cada hora simulada
-                    if (reloj.getInstanteActual().getMinute() == 0) {
-                        List<Ruta> nuevasRutas = planificador.ejecutarCicloPlanificacion(reloj.getInstanteActual());
+            // --- Transacción 2: Movimientos de flota y entregas ---
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    ejecutarMovimientosFlota(instanteActual);
+                });
+            } catch (Exception e) {
+                log.error("Error en movimientos de flota en instante {}: {}", instanteActual, e.getMessage());
+            }
+
+            // --- Transacción 3: Planificación de rutas cada hora simulada ---
+            try {
+                if (instanteActual.getMinute() == 0) {
+                    transactionTemplate.executeWithoutResult(status -> {
+                        List<Ruta> nuevasRutas = planificador.ejecutarCicloPlanificacion(instanteActual);
                         registrarCostosYRutas(nuevasRutas);
-                    }
-
-                    // Recarga diaria de almacenes intermedios a las 23:59:59 (RF-20)
-                    LocalTime hora = reloj.horaSimulada();
-                    if (hora.getHour() == 23 && hora.getMinute() >= 50) {
-                        ejecutarRecargaDiaria();
-                    }
-
-                    // Verificar condición de colapso si aplica (RF-73)
-                    if (escenario == TipoEscenario.COLAPSO_LOGISTICO && detectarColapso()) {
-                        log.warn("¡COLAPSO LOGÍSTICO DETECTADO en el instante {}!", reloj.getInstanteActual());
-                        detener();
-                        this.estado = EstadoEjecucion.DETENIDA_POR_COLAPSO;
-                    }
+                    });
                 }
             } catch (Exception e) {
-                log.error("Error en ciclo de simulación: {}", e.getMessage(), e);
+                log.error("Error en planificación en instante {}: {}", instanteActual, e.getMessage());
+            }
+
+            // Recarga diaria de almacenes intermedios a las 23:59:59 (RF-20)
+            try {
+                LocalTime hora = reloj.horaSimulada();
+                if (hora.getHour() == 23 && hora.getMinute() >= 50) {
+                    transactionTemplate.executeWithoutResult(status -> {
+                        ejecutarRecargaDiaria();
+                    });
+                }
+            } catch (Exception e) {
+                log.error("Error en recarga diaria: {}", e.getMessage());
+            }
+
+            // Verificar condición de colapso si aplica (RF-73): colapsa apenas UN pedido incumple su plazo
+            if (escenario == TipoEscenario.COLAPSO_LOGISTICO && detectarColapso()) {
+                this.instanteColapsoDetectado = instanteActual;
+                this.volumenPedidosColapsoDetectado = contarPedidosActivos();
+                log.warn("¡COLAPSO LOGÍSTICO DETECTADO en el instante {}! Pedidos activos al momento del colapso: {}",
+                        instanteActual, volumenPedidosColapsoDetectado);
+                detener();
+                this.estado = EstadoEjecucion.DETENIDA_POR_COLAPSO;
             }
         }, 0, 500, TimeUnit.MILLISECONDS);
 
@@ -183,9 +261,22 @@ public class MotorSimulacion {
             }
         }
         for (Pedido p : entrantes) {
-            pedidoRepository.save(p);
+            try {
+                if (p.getCliente() != null) {
+                    com.paqrap.logistics.pedidos.model.Cliente existing = clienteRepository.findByIdCliente(p.getCliente().getIdCliente()).orElse(null);
+                    if (existing != null) {
+                        p.setCliente(existing);
+                    } else {
+                        // Save the new client first since cascade is removed
+                        p.setCliente(clienteRepository.save(p.getCliente()));
+                    }
+                }
+                pedidoRepository.save(p);
+                totalPedidosIngresados++;
+            } catch (Exception e) {
+                log.warn("Error al guardar pedido {}: {}", p.getCodigo(), e.getMessage());
+            }
             pedidosProgramados.remove(p);
-            totalPedidosIngresados++;
         }
 
         // 2. Activación / desactivación de bloqueos (RF-11)
@@ -193,6 +284,7 @@ public class MotorSimulacion {
             if (b.estaVigente(instante) && !b.isActivo()) {
                 b.activar();
                 bloqueoRepository.save(b);
+                bloqueosOcurridos++;
                 planificador.replanificarPorBloqueo(b);
             } else if (!b.estaVigente(instante) && b.isActivo()) {
                 b.desactivar();
@@ -204,21 +296,121 @@ public class MotorSimulacion {
         for (Averia a : averiasProgramadas) {
             if (a.getFechaHoraEvento() != null && !a.getFechaHoraEvento().isAfter(instante) && !a.isResuelta()) {
                 averiaRepository.save(a);
+                averiasOcurridas++;
                 planificador.replanificarPorAveria(a);
             }
         }
     }
 
     /**
-     * Detecta automáticamente si la flota colapsó (plazos incumplidos > umbral) en el escenario de colapso (RF-73).
+     * Cuenta los pedidos que el sistema tenía activos (no entregados, no cancelados) en el instante actual.
+     * Usado como métrica de carga soportada justo antes de un colapso (RF-73).
+     */
+    private int contarPedidosActivos() {
+        return (int) pedidoRepository.findAll().stream()
+                .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
+                .count();
+    }
+
+    private void ejecutarMovimientosFlota(LocalDateTime instante) {
+        // Obtenemos las rutas en ejecución o recién planificadas
+        List<Ruta> rutasActivas = rutaRepository.findAll();
+        for (Ruta r : rutasActivas) {
+            if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
+            
+            // Marcar como en ejecución si estaba planificada
+            if (r.getEstado() == EstadoRuta.PLANIFICADA) {
+                r.setEstado(EstadoRuta.EN_EJECUCION);
+            }
+
+            boolean todasEntregadas = true;
+            for (com.paqrap.logistics.planificacion.model.ParadaRuta p : r.getParadas()) {
+                if (!p.isEntregada()) {
+                    todasEntregadas = false;
+                    log.info("Ruta {} Unidad {}: Evaluando parada. Instante={}, HoraEstimadaLlegada={}", 
+                            r.getId(), r.getUnidadTransporte().getCodigo(), instante, p.getHoraEstimadaLlegada());
+                            
+                    if (p.getHoraEstimadaLlegada() != null && !instante.isBefore(p.getHoraEstimadaLlegada())) {
+                        log.info("✅ ENTREGANDO pedido {} en instante {}", p.getPedido().getCodigo(), instante);
+                        p.registrarEntrega(instante);
+                        // Mover el camión a esta posición final
+                        if (p.getPedido() != null && p.getPedido().getDestino() != null) {
+                            r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(p.getPedido().getDestino().getPosX(), p.getPedido().getDestino().getPosY()));
+                            p.getPedido().setEstado(com.paqrap.logistics.pedidos.model.EstadoPedido.ENTREGADO);
+                            pedidoRepository.save(p.getPedido());
+                            unidadRepository.save(r.getUnidadTransporte());
+                            rutaRepository.save(r); 
+                        }
+                        
+                        if (p.getPedido() != null) {
+                            if (p.getPedido().getPlazoLimiteEntrega() != null && p.getPedido().getPlazoLimiteEntrega().isBefore(instante)) {
+                                pedidosTarde++;
+                            } else {
+                                pedidosEnPlazo++;
+                            }
+                        }
+                    } else if (p.getHoraEstimadaLlegada() != null) {
+                        // Interpolación visual suave (El vehículo está en tránsito hacia la parada p)
+                        int pos = r.getParadas().indexOf(p);
+                        LocalDateTime startTime;
+                        int startX, startY;
+                        if (pos == 0) {
+                            startTime = r.getFechaHoraGeneracion();
+                            startX = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosX() : 27;
+                            startY = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosY() : 14;
+                        } else {
+                            com.paqrap.logistics.planificacion.model.ParadaRuta prev = r.getParadas().get(pos - 1);
+                            startTime = prev.getHoraEstimadaLlegada().plusMinutes(prev.getTiempoServicioMin());
+                            startX = (prev.getPedido() != null && prev.getPedido().getDestino() != null) ? prev.getPedido().getDestino().getPosX() : 27;
+                            startY = (prev.getPedido() != null && prev.getPedido().getDestino() != null) ? prev.getPedido().getDestino().getPosY() : 14;
+                        }
+                        
+                        if (startTime != null && p.getPedido() != null && p.getPedido().getDestino() != null) {
+                            if (!instante.isBefore(startTime)) {
+                                long totalMin = java.time.Duration.between(startTime, p.getHoraEstimadaLlegada()).toMinutes();
+                                long elapsedMin = java.time.Duration.between(startTime, instante).toMinutes();
+                                if (totalMin > 0) {
+                                    double factor = (double) elapsedMin / totalMin;
+                                    factor = Math.max(0.0, Math.min(1.0, factor));
+                                    
+                                    int endX = p.getPedido().getDestino().getPosX();
+                                    int endY = p.getPedido().getDestino().getPosY();
+                                    
+                                    int currentX = (int) Math.round(startX + (endX - startX) * factor);
+                                    int currentY = (int) Math.round(startY + (endY - startY) * factor);
+                                    
+                                    r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(currentX, currentY));
+                                    unidadRepository.save(r.getUnidadTransporte());
+                                }
+                            }
+                        }
+                    }
+                    // Si no está entregada, cortamos para no evaluar las siguientes paradas
+                    break;
+                }
+            }
+
+            // Si todas están entregadas, regresar al almacén y liberar
+            if (todasEntregadas && !r.getParadas().isEmpty()) {
+                r.setEstado(EstadoRuta.COMPLETADA);
+                r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(27, 14));
+                r.getUnidadTransporte().setEstadoOperativo(com.paqrap.logistics.flota.model.EstadoOperativo.DISPONIBLE);
+                unidadRepository.save(r.getUnidadTransporte());
+            }
+            rutaRepository.save(r);
+        }
+    }
+
+    /**
+     * Detecta si el sistema colapsó en el escenario de colapso logístico (RF-73).
+     * Regla de negocio exacta (no admite umbral ni porcentaje): el sistema colapsa en el instante
+     * en que UN SOLO pedido activo (no ENTREGADO) incumple su plazo límite de entrega.
      */
     public boolean detectarColapso() {
         LocalDateTime ahora = reloj.getInstanteActual();
-        List<Pedido> pendientes = pedidoRepository.findByEstado(EstadoPedido.REGISTRADO);
-        long vencidos = pendientes.stream().filter(p -> p.getPlazoLimiteEntrega().isBefore(ahora)).count();
-
-        // Criterio de colapso: si hay más de 10 pedidos vencidos sin atender
-        return vencidos >= 10;
+        return pedidoRepository.findAll().stream()
+                .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
+                .anyMatch(p -> p.getPlazoLimiteEntrega() != null && p.getPlazoLimiteEntrega().isBefore(ahora));
     }
 
     /**
@@ -230,7 +422,7 @@ public class MotorSimulacion {
         }
         if (estado == EstadoEjecucion.EN_EJECUCION) {
             estado = EstadoEjecucion.FINALIZADA;
-            construirResultado(TipoEscenario.valueOf(parametros != null ? "DIA_A_DIA" : "SIMULACION_5D")); // Guarda el resultado real al terminar
+            construirResultado(escenarioActual != null ? escenarioActual : TipoEscenario.DIA_A_DIA);
         }
         log.info("Motor de simulación detenido.");
     }
@@ -282,6 +474,10 @@ public class MotorSimulacion {
                 .entregasAuto(entregasAuto)
                 .entregasMoto(entregasMoto)
                 .entregasBicicleta(entregasBici)
+                .totalBloqueosOcurridos(bloqueosOcurridos)
+                .totalAveriasOcurridas(averiasOcurridas)
+                .instanteColapso(instanteColapsoDetectado)
+                .volumenPedidosColapso(volumenPedidosColapsoDetectado)
                 .build();
         res.guardar();
         resultadoRepository.save(res);

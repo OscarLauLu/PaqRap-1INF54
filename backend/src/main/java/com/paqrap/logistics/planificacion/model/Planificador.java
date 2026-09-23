@@ -89,7 +89,7 @@ public class Planificador {
         List<Pedido> pedidosOrdenados = ordenarPorHolgura(pedidosPendientes);
 
         // Obtener flota disponible
-        List<UnidadTransporte> flotaDisponible = unidadRepository.findByActivoTrueAndEstadoOperativo(EstadoOperativo.DISPONIBLE);
+        List<UnidadTransporte> flotaDisponible = unidadRepository.findByDadaDeBajaFalseAndEstadoOperativo(EstadoOperativo.DISPONIBLE);
         if (flotaDisponible.isEmpty()) {
             log.warn("No hay unidades de transporte disponibles para planificar rutas.");
             return new ArrayList<>();
@@ -121,7 +121,7 @@ public class Planificador {
                         p.getPedido().setEstado(EstadoPedido.PLANIFICADO);
                         p.getPedido().setRutaAsignadaId(ruta.getId());
                         if (ruta.getUnidadTransporte() != null) {
-                            p.getPedido().setUnidadAsignadaId(ruta.getUnidadTransporte().getId());
+                            p.getPedido().setUnidadAsignadaId(ruta.getUnidadTransporte().getCodigo());
                         }
                         pedidoRepository.save(p.getPedido());
                     }
@@ -165,14 +165,7 @@ public class Planificador {
         List<Almacen> almacenes = almacenRepository.findAll();
         if (almacenes.isEmpty()) return null;
 
-        // Priorizar almacén central
-        for (Almacen a : almacenes) {
-            if (a instanceof AlmacenCentral) {
-                return a;
-            }
-        }
-
-        // Si no, buscar almacén más cercano con stock suficiente
+        // Buscar el almacén más cercano que tenga stock suficiente
         if (pedido != null && pedido.getDestino() != null) {
             Ubicacion dest = pedido.getDestino();
             return almacenes.stream()
@@ -181,6 +174,7 @@ public class Planificador {
                     .orElse(almacenes.get(0));
         }
 
+        // Si no hay pedido válido, retornar el primer almacén disponible
         return almacenes.get(0);
     }
 
@@ -221,7 +215,7 @@ public class Planificador {
     public List<Ruta> reasignarPedidosPendientes(UnidadTransporte unidad) {
         log.info("Reasignando pedidos pendientes de la unidad averiada {}", unidad.getCodigo());
 
-        List<Ruta> rutasDeUnidad = rutaRepository.findByUnidadTransporteId(unidad.getId());
+        List<Ruta> rutasDeUnidad = rutaRepository.findByUnidadTransporteCodigo(unidad.getCodigo());
         List<Pedido> pedidosPorReasignar = new ArrayList<>();
 
         for (Ruta r : rutasDeUnidad) {
@@ -240,7 +234,7 @@ public class Planificador {
         pedidosPorReasignar = ordenarPorHolgura(pedidosPorReasignar);
 
         // Flota de contingencia disponible
-        List<UnidadTransporte> candidatos = unidadRepository.findByActivoTrueAndEstadoOperativo(EstadoOperativo.DISPONIBLE);
+        List<UnidadTransporte> candidatos = unidadRepository.findByDadaDeBajaFalseAndEstadoOperativo(EstadoOperativo.DISPONIBLE);
         if (candidatos.isEmpty()) {
             log.error("ALERTA CRÍTICA (RF-16): Imposible reasignar pedidos de unidad {}. No hay unidades disponibles.", unidad.getCodigo());
             return new ArrayList<>();

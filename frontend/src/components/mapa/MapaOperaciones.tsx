@@ -1,304 +1,140 @@
 import React, { useState } from 'react';
-import { Almacen, UnidadTransporte, Pedido } from '../../types';
-import { LeyendaMapa } from './LeyendaMapa';
+import { Almacen, BloqueoVial, Pedido, UnidadTransporte } from '../../types';
 import { Car, Bike } from 'lucide-react';
+import { LeyendaMapa } from './LeyendaMapa';
 
 interface MapaOperacionesProps {
   almacenes: Almacen[];
   unidades: UnidadTransporte[];
   pedidos: Pedido[];
-  selectedUnidadId: number | null;
-  onSelectUnidad: (id: number) => void;
+  selectedUnidadCodigo: string | null;
+  onSelectUnidad: (codigo: string) => void;
 }
+
+/** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */
+const parsePuntos = (texto: string): Array<[number, number]> =>
+  Array.from(
+    (texto || '').matchAll(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/g),
+    (m) => [Number(m[1]), Number(m[2])] as [number, number],
+  );
 
 export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   almacenes,
   unidades,
   pedidos,
-  selectedUnidadId,
+  selectedUnidadCodigo,
   onSelectUnidad,
+  bloqueos = [],
 }) => {
   const [showLeyenda, setShowLeyenda] = useState(false);
 
-  // Dimensiones del mapa: 70 x 50 km convertido a escala 10x (700 x 500 px)
-  const scale = 10;
-  const mapWidth = 70 * scale;
-  const mapHeight = 50 * scale;
-
-  // Conversión de coordenadas: (x, y) en km a píxeles SVG (Y invertida para que Y mayor esté arriba)
-  const toSvgX = (xKm: number) => xKm * scale;
-  const toSvgY = (yKm: number) => (50 - yKm) * scale;
-
-  // Generación de cuadrícula de fondo cada 5 km
-  const gridLinesX = [];
-  for (let x = 5; x < 70; x += 5) {
-    gridLinesX.push(x * scale);
-  }
-  const gridLinesY = [];
-  for (let y = 5; y < 50; y += 5) {
-    gridLinesY.push(y * scale);
-  }
+  // La matriz tiene 70 de ancho por 50 de alto.
+  // Usaremos viewBox="0 0 70 50" para que 1 unidad SVG = 1 km.
+  // Y como el origen en el backend está abajo a la izquierda, y SVG está arriba a la izquierda:
+  const toSvgX = (x: number) => x;
+  const toSvgY = (y: number) => 50 - y;
 
   return (
-    <div className="relative bg-[#ebf1f6] rounded-2xl border border-gray-300/80 p-3 shadow-inner overflow-hidden select-none">
-      {/* SVG Canvas */}
+    <div className="relative w-full h-[600px] bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
       <svg
-        viewBox={`0 0 ${mapWidth} ${mapHeight}`}
-        className="w-full h-auto aspect-70/50 block"
+        className="w-full h-full bg-[#f8fafc]"
+        viewBox="-2 -2 74 54"
+        preserveAspectRatio="xMidYMid meet"
       >
-        {/* Cuadrícula ortogonal */}
-        <g stroke="#dbe4ec" strokeWidth="1.5">
-          {gridLinesX.map((x) => (
-            <line key={`gx-${x}`} x1={x} y1={0} x2={x} y2={mapHeight} />
+        {/* Renderizado manual de la cuadrícula exacta */}
+        <g stroke="#CBD5E1" strokeWidth="0.05">
+          {Array.from({ length: 71 }).map((_, i) => (
+            <line key={`v-${i}`} x1={i} y1={0} x2={i} y2={50} />
           ))}
-          {gridLinesY.map((y) => (
-            <line key={`gy-${y}`} x1={0} y1={y} x2={mapWidth} y2={y} />
+          {Array.from({ length: 51 }).map((_, i) => (
+            <line key={`h-${i}`} x1={0} y1={i} x2={70} y2={i} />
           ))}
         </g>
 
-        {/* 1. Rutas trazadas (Normales: Azul punteada, Alternativas: Amarilla punteada, Bloqueadas: Roja) */}
-        <g strokeWidth="2.5" strokeDasharray="5,5" fill="none">
-          {/* Ruta Normal azul: Intermedio N-O hacia el sur y luego hacia almacén central */}
-          <polyline
-            points="170,130 240,130 240,260 280,260 280,330"
-            stroke="#2563EB"
-          />
-          <polyline
-            points="280,330 280,390 380,390"
-            stroke="#2563EB"
-          />
-          <polyline
-            points="380,280 430,280 430,350 480,350 480,260 580,260"
-            stroke="#2563EB"
-          />
-          <polyline
-            points="480,260 480,180 570,180"
-            stroke="#2563EB"
-          />
+        {/* Bloqueos de calle (solo si se pasan) */}
+        {bloqueos
+          .filter((b) => b.activo)
+          .map((b) => {
+            const pts = parsePuntos(b.coordenadasNodos);
+            if (pts.length < 2) return null;
+            const linea = pts.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(' ');
+            const medio = pts[Math.floor(pts.length / 2)] as [number, number];
+            const mx = toSvgX(medio[0]);
+            const my = toSvgY(medio[1]);
+            return (
+              <g key={`bloqueo-${b.id}`} className="select-none">
+                <polyline points={linea} fill="none" stroke="#111827" strokeWidth="0.35" strokeLinecap="round" strokeLinejoin="round" />
+                <rect x={mx - 0.8} y={my - 0.5} width="1.6" height="1" rx="0.2" fill="#DC2626" />
+                <text x={mx + 1.2} y={my - 0.6} fontSize="0.9" fontWeight="bold" fill="#111827">Bloqueo</text>
+              </g>
+            );
+          })}
 
-          {/* Rutas Verdes / Secundarias */}
-          <polyline
-            points="320,150 360,150 360,280"
-            stroke="#16A34A"
-          />
-          <polyline
-            points="480,350 540,350 540,380"
-            stroke="#16A34A"
-          />
-
-          {/* Rutas Alternativas amarillas */}
-          <polyline
-            points="380,280 420,280 420,180 480,180 480,320"
-            stroke="#EAB308"
-          />
-
-          {/* Calle bloqueada (Roja punteada) */}
-          <line
-            x1={200}
-            y1={390}
-            x2={280}
-            y2={390}
-            stroke="#DC2626"
-            strokeWidth="3"
-          />
-          <line
-            x1={480}
-            y1={140}
-            x2={480}
-            y2={220}
-            stroke="#DC2626"
-            strokeWidth="3"
-          />
-        </g>
-
-        {/* 2. Marcadores de Clientes / Pedidos (P1, P2, P3, P4, P5, P6, P7) */}
+        {/* Marcadores de Clientes / Pedidos */}
         {pedidos.map((p) => {
-          const px = toSvgX(p.destino.x);
-          const py = toSvgY(p.destino.y);
+          if (!p.destino) return null;
+          const px = toSvgX(p.destino.posX);
+          const py = toSvgY(p.destino.posY);
           return (
             <g key={`pedido-${p.id}`} className="cursor-pointer group">
-              <circle
-                cx={px}
-                cy={py}
-                r={6}
-                fill="#64748B"
-                className="group-hover:fill-blue-600 transition-colors"
-              />
-              <text
-                x={px}
-                y={py + 15}
-                textAnchor="middle"
-                className="text-[9px] font-bold fill-gray-600 select-none"
-              >
+              <circle cx={px} cy={py} r={0.6} fill="#2563EB" />
+              <text x={px} y={py - 1} textAnchor="middle" fontSize="0.6" fontWeight="bold" fill="#2563EB" className="select-none">
                 {p.codigo}
               </text>
             </g>
           );
         })}
 
-        {/* 3. Incidencias en el Mapa */}
-        {/* Bloqueo 1 en (28, 17) */}
-        <g transform="translate(280, 330)">
-          <circle r="9" fill="#DC2626" />
-          <text textAnchor="middle" dy="3.5" fill="white" fontSize="10" fontWeight="bold">✕</text>
-        </g>
-        {/* Bloqueo 2 en (23, 11) */}
-        <g transform="translate(230, 390)">
-          <circle r="9" fill="#DC2626" />
-          <text textAnchor="middle" dy="3.5" fill="white" fontSize="10" fontWeight="bold">✕</text>
-        </g>
-        {/* Bloqueo 3 en (48, 36) */}
-        <g transform="translate(480, 140)">
-          <circle r="9" fill="#DC2626" />
-          <text textAnchor="middle" dy="3.5" fill="white" fontSize="10" fontWeight="bold">✕</text>
-        </g>
-
-        {/* Avería mecánica en (53, 32) */}
-        <g transform="translate(530, 180)">
-          <circle r="12" fill="#FEE2E2" stroke="#EF4444" strokeWidth="1.5" />
-          <path
-            d="M -6,5 L 6,5 L 0,-6 Z"
-            fill="#DC2626"
-          />
-          <text textAnchor="middle" dy="4" fill="white" fontSize="8" fontWeight="black">!</text>
-        </g>
-
-        {/* 4. Almacenes en el Mapa */}
+        {/* Almacenes */}
         {almacenes.map((alm) => {
-          const ax = toSvgX(alm.ubicacion.x);
-          const ay = toSvgY(alm.ubicacion.y);
-          const letra = alm.tipo === 'CENTRAL' ? 'C' : alm.nombre.includes('N-O') ? 'N' : 'E';
+          const ax = toSvgX(alm.ubicacion.posX);
+          const ay = toSvgY(alm.ubicacion.posY);
+          const esNoroeste = /n[-\s]?o/i.test(alm.nombre) || alm.nombre.toLowerCase().includes('norte');
+          const letra = alm.tipo === 'CENTRAL' ? 'C' : esNoroeste ? 'N' : 'E';
+          const color = alm.tipo === 'CENTRAL' ? '#DC2626' : esNoroeste ? '#F97316' : '#9333EA';
 
           return (
-            <g key={`alm-${alm.id}`} transform={`translate(${ax}, ${ay})`} className="cursor-pointer">
-              {/* Tarjeta del almacén */}
-              <rect
-                x="-14"
-                y="-14"
-                width="28"
-                height="28"
-                rx="6"
-                fill="#1D4ED8"
-                stroke="#1E40AF"
-                strokeWidth="1.5"
-                filter="drop-shadow(0 2px 4px rgba(0,0,0,0.15))"
-              />
-              {/* Techo de almacén */}
-              <path
-                d="M -10 -3 L 0 -10 L 10 -3"
-                stroke="white"
-                strokeWidth="1.5"
-                fill="none"
-              />
-              <text
-                x="0"
-                y="8"
-                textAnchor="middle"
-                fill="white"
-                fontSize="11"
-                fontWeight="bold"
-              >
-                {letra}
-              </text>
-              {/* Nombre debajo */}
-              <text
-                x="0"
-                y="24"
-                textAnchor="middle"
-                fill="#1E3A8A"
-                fontSize="9"
-                fontWeight="bold"
-              >
-                {alm.tipo === 'CENTRAL' ? 'Central' : alm.nombre}
-              </text>
+            <g key={`alm-${alm.codigo}`} transform={`translate(${ax}, ${ay})`} className="cursor-pointer">
+              <rect x="-1.5" y="-1.5" width="3" height="3" rx="0.5" fill={color} />
+              <path d="M -1 -0.2 L 0 -1.2 L 1 -0.2" stroke="white" strokeWidth="0.2" fill="none" />
+              <text x="0" y="1" textAnchor="middle" fill="white" fontSize="1.5" fontWeight="bold">{letra}</text>
             </g>
           );
         })}
 
-        {/* 5. Unidades de Transporte (Vehículos) */}
+        {/* Unidades de Transporte */}
         {unidades.map((u) => {
-          const ux = toSvgX(u.ubicacionActual.x);
-          const uy = toSvgY(u.ubicacionActual.y);
-          const isSelected = u.id === selectedUnidadId;
-
-          // Colores según tipo
-          const bgColor =
-            u.tipoNombre === 'Auto'
-              ? '#DC2626'
-              : u.tipoNombre === 'Moto'
-              ? u.id === 4
-                ? '#2563EB'
-                : '#16A34A'
-              : '#EAB308';
+          const ux = toSvgX(u.ubicacionActual.posX);
+          const uy = toSvgY(u.ubicacionActual.posY);
+          const isSelected = u.codigo === selectedUnidadCodigo;
+          const bgColor = u.tipoNombre === 'Auto' ? '#3B82F6' : u.tipoNombre === 'Moto' ? '#16A34A' : '#EAB308';
 
           return (
-            <g
-              key={`vehiculo-${u.id}`}
-              transform={`translate(${ux}, ${uy})`}
-              onClick={() => onSelectUnidad(u.id)}
-              className="cursor-pointer group"
-            >
-              {/* Halo de selección animado si está seleccionado */}
-              {isSelected && (
-                <circle
-                  r="18"
-                  fill="none"
-                  stroke="#22C55E"
-                  strokeWidth="2.5"
-                  className="animate-pulse"
-                />
-              )}
-
-              {/* Círculo base de la unidad */}
-              <circle
-                r="12"
-                fill="white"
-                stroke={bgColor}
-                strokeWidth="2.5"
-                className="group-hover:scale-110 transition-transform"
-              />
-
-              {/* Icono de vehículo */}
+            <g key={`vehiculo-${u.codigo}`} transform={`translate(${ux}, ${uy})`} onClick={() => onSelectUnidad(u.codigo)} className="cursor-pointer group">
+              {isSelected && <circle r="2.5" fill="none" stroke="#60A5FA" strokeWidth="0.3" className="animate-pulse" />}
               {u.tipoNombre === 'Auto' ? (
-                <Car className="w-3.5 h-3.5" x="-7" y="-7" stroke={bgColor} strokeWidth="2.5" />
+                <Car width={2.5} height={2.5} x="-1.25" y="-1.25" stroke={bgColor} strokeWidth={2} />
               ) : (
-                <Bike className="w-3.5 h-3.5" x="-7" y="-7" stroke={bgColor} strokeWidth="2.5" />
+                <Bike width={2.5} height={2.5} x="-1.25" y="-1.25" stroke={bgColor} strokeWidth={2} />
               )}
+              <text x="0" y="2" textAnchor="middle" fontSize="1" fontWeight="bold" fill="#1F2937">{u.codigo}</text>
             </g>
           );
         })}
       </svg>
 
-      {/* Rosa de los vientos (Norte) en la esquina superior derecha */}
-      <div className="absolute top-6 right-6 flex flex-col items-center select-none pointer-events-none opacity-80">
-        <span className="text-[11px] font-black text-gray-700 leading-none mb-0.5">N</span>
-        <svg className="w-4 h-6 fill-gray-700" viewBox="0 0 24 36">
-          <polygon points="12,0 20,20 12,14 4,20" />
-        </svg>
+      {/* Rosa de los vientos (Norte) */}
+      <div className="absolute top-4 left-4 flex flex-col items-center select-none pointer-events-none opacity-80">
+        <span className="text-xs font-black text-gray-800 leading-none mb-0.5">N</span>
+        <svg className="w-3 h-5 fill-gray-800" viewBox="0 0 24 36"><polygon points="12,0 20,20 12,14 4,20" /></svg>
       </div>
 
-      {/* Escala (5 km) en la esquina inferior izquierda */}
-      <div className="absolute bottom-5 left-5 flex flex-col items-center select-none pointer-events-none">
-        <div className="w-16 h-1.5 border-x-2 border-b-2 border-gray-600"></div>
-        <span className="text-[10px] font-semibold text-gray-600 mt-1">5 km</span>
-      </div>
-
-      {/* Botón flotante para alternar la Leyenda */}
       <div className="absolute bottom-4 right-4">
-        <button
-          onClick={() => setShowLeyenda(!showLeyenda)}
-          className="bg-white/95 hover:bg-white text-gray-700 font-semibold px-4 py-1.5 rounded-lg border border-gray-300 text-xs shadow-md transition-all cursor-pointer"
-        >
+        <button onClick={() => setShowLeyenda(!showLeyenda)} className="bg-white/95 hover:bg-white text-gray-700 font-semibold px-4 py-1.5 rounded-lg border border-gray-300 text-xs shadow-md transition-all cursor-pointer">
           Leyenda
         </button>
       </div>
-
-      {/* Panel flotante de Leyenda cuando está activo */}
-      {showLeyenda && (
-        <div className="absolute bottom-14 right-4 z-20">
-          <LeyendaMapa onClose={() => setShowLeyenda(false)} />
-        </div>
-      )}
+      {showLeyenda && <div className="absolute bottom-14 right-4 z-20"><LeyendaMapa onClose={() => setShowLeyenda(false)} /></div>}
     </div>
   );
 };

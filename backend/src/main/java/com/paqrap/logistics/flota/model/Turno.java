@@ -1,7 +1,11 @@
 package com.paqrap.logistics.flota.model;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Embeddable;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,7 +16,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 /**
- * Representa un turno de trabajo para conductores (RF-43, RF-44).
+ * Catálogo de los 3 turnos de trabajo oficiales para conductores (RF-43, RF-44).
+ * Según docs/62.dis.base.datos.postgresql.v01.md, "turno" es una tabla catálogo real de 3 filas
+ * (antes era un value object embebido en Conductor); cada {@link AsignacionTurno} referencia un
+ * turno por fecha, en vez de que el conductor tenga un turno fijo.
  * Turnos estándar:
  * - Mañana: 07:00 a 15:00
  * - Tarde: 15:00 a 23:00
@@ -22,8 +29,13 @@ import java.time.LocalTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Embeddable
+@Entity
+@Table(name = "turno")
 public class Turno {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Integer id;
 
     @Column(name = "hora_inicio")
     private LocalTime horaInicio;
@@ -62,14 +74,14 @@ public class Turno {
     }
 
     public static Turno turnoManana() {
-        return new Turno(LocalTime.of(7, 0), LocalTime.of(15, 0));
+        return Turno.builder().horaInicio(LocalTime.of(7, 0)).horaFin(LocalTime.of(15, 0)).build();
     }
 
     public static Turno turnoTarde() {
-        return new Turno(LocalTime.of(15, 0), LocalTime.of(23, 0));
+        return Turno.builder().horaInicio(LocalTime.of(15, 0)).horaFin(LocalTime.of(23, 0)).build();
     }
 
     public static Turno turnoNoche() {
-        return new Turno(LocalTime.of(23, 0), LocalTime.of(7, 0));
+        return Turno.builder().horaInicio(LocalTime.of(23, 0)).horaFin(LocalTime.of(7, 0)).build();
     }
 }

@@ -44,6 +44,7 @@ services:
     container_name: paqrap-benchmark
     volumes:
       - ./datos:/app/datos:ro
+      - ./:/app/out
     command: ["benchmark"]
 
   # ----------------------------------------------------------------------------

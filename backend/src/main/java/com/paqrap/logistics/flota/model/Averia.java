@@ -1,6 +1,9 @@
 package com.paqrap.logistics.flota.model;
 
 import com.paqrap.logistics.redvial.model.Ubicacion;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -44,6 +47,10 @@ public class Averia {
     private LocalDateTime fechaHoraEvento;
 
     @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "posX", column = @Column(name = "ubicacion_falla_x")),
+            @AttributeOverride(name = "posY", column = @Column(name = "ubicacion_falla_y"))
+    })
     private Ubicacion ubicacionFalla;
 
     private LocalDateTime horaReincorporacion;
@@ -52,7 +59,7 @@ public class Averia {
     private boolean origenManual = false;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "unidad_id")
+    @JoinColumn(name = "unidad_codigo")
     private UnidadTransporte unidad;
 
     @Builder.Default

@@ -47,6 +47,17 @@ public class RelojSimulado {
     }
 
     /**
+ * Avanza el reloj según el tiempo real transcurrido, escalado por el factor de aceleración.
+ * factorAceleracion = segundos simulados por segundo real.
+ */
+public void avanzar(java.time.Duration tiempoReal) {
+    if (instanteActual != null && tiempoReal != null) {
+        double segundosSimulados = (tiempoReal.toMillis() / 1000.0) * factorAceleracion;
+        instanteActual = instanteActual.plusNanos((long) (segundosSimulados * 1_000_000_000L));
+    }
+}
+
+    /**
      * Retorna el número de día transcurrido desde el inicio de la simulación (Día 1, Día 2, etc.).
      */
     public int diaSimulado() {

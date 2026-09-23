@@ -14,6 +14,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -26,6 +27,7 @@ import java.time.LocalDateTime;
  * Representa un pedido registrado en el sistema logístico (RF-26 a RF-38).
  */
 @Data
+@lombok.EqualsAndHashCode(of = "id")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -70,7 +72,8 @@ public class Pedido {
     @JoinColumn(name = "cliente_id")
     private Cliente cliente;
 
-    private Long unidadAsignadaId;
+    // FK denormalizada a UnidadTransporte.codigo (String desde el remodelado a clave natural)
+    private String unidadAsignadaId;
     private Long rutaAsignadaId;
     private String codigoPadre;
 

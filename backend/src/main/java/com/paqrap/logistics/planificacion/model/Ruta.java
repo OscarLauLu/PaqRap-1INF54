@@ -30,6 +30,7 @@ import java.util.List;
  * Representa una ruta de entrega planificada (RF-05, RF-06, RF-07, RF-08, RF-55).
  */
 @Data
+@lombok.EqualsAndHashCode(of = "id")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor

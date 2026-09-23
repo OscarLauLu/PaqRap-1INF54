@@ -11,12 +11,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AlmacenDTO {
-    private Long id;
     private String codigo;
     private String nombre;
     private String tipo;
     private Ubicacion ubicacion;
-    private int stockActual;
+    // null = stock infinito (Almacén Central); ver Almacen.stockActual (docs/62, CHECK de "almacen")
+    private Integer stockActual;
     private Integer capacidadMaxima;
     private double porcentajeOcupacion;
     private boolean superaAlertaOcupacion;

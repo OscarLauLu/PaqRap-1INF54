@@ -12,7 +12,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UnidadTransporteDTO {
-    private Long id;
     private String codigo;
     private String tipoNombre;
     private int capacidadMaxima;
