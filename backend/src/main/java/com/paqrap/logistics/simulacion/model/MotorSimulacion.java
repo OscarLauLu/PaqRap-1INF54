@@ -285,7 +285,11 @@ public class MotorSimulacion {
             for (com.paqrap.logistics.planificacion.model.ParadaRuta p : r.getParadas()) {
                 if (!p.isEntregada()) {
                     todasEntregadas = false;
+                    log.info("Ruta {} Unidad {}: Evaluando parada. Instante={}, HoraEstimadaLlegada={}", 
+                            r.getId(), r.getUnidadTransporte().getCodigo(), instante, p.getHoraEstimadaLlegada());
+                            
                     if (p.getHoraEstimadaLlegada() != null && !instante.isBefore(p.getHoraEstimadaLlegada())) {
+                        log.info("✅ ENTREGANDO pedido {} en instante {}", p.getPedido().getCodigo(), instante);
                         p.registrarEntrega(instante);
                         // Mover el camión a esta posición
                         if (p.getPedido() != null && p.getPedido().getDestino() != null) {
@@ -293,9 +297,7 @@ public class MotorSimulacion {
                             p.getPedido().setEstado(com.paqrap.logistics.pedidos.model.EstadoPedido.ENTREGADO);
                             pedidoRepository.save(p.getPedido());
                             unidadRepository.save(r.getUnidadTransporte());
-                            log.info("✅ ENTREGA: pedido={}, unidad={}, instante={}, destino=({},{})",
-                                    p.getPedido().getCodigo(), r.getUnidadTransporte().getCodigo(),
-                                    instante, p.getPedido().getDestino().getPosX(), p.getPedido().getDestino().getPosY());
+                            rutaRepository.save(r); // <--- THIS WAS MISSING, ParadaRuta was never persisted!
                         }
                         
                         if (p.getPedido() != null) {

@@ -174,14 +174,26 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
 
         Hormiga mejorGlobal = null;
         for (int it = 0; it < config.getIterations(); it++) {
+            
+            // Procesamiento en Paralelo: Multihilo nativo de Java para explotar todos los núcleos (vCPUs)
+            final LocalDateTime tInicio = horaInicio;
+            List<Hormiga> hormigas = java.util.stream.IntStream.range(0, m)
+                    .parallel()
+                    .mapToObj(k -> {
+                        Hormiga ant = new Hormiga();
+                        construirRuta(ant, vehiculo, origen, pedidosPendientes, red, tInicio);
+                        return ant;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+
+            // Buscar la mejor hormiga de esta ronda
             Hormiga mejorIteracion = null;
-            for (int k = 0; k < m; k++) {
-                Hormiga ant = new Hormiga();
-                construirRuta(ant, vehiculo, origen, pedidosPendientes, red, horaInicio);
+            for (Hormiga ant : hormigas) {
                 if (ant.cumpleTodosLosPlazos() && esMejor(ant, mejorIteracion)) {
                     mejorIteracion = ant;
                 }
             }
+
             evaporar();
             if (mejorIteracion != null) {
                 reforzar(origen, mejorIteracion, red);
@@ -231,13 +243,21 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
             Map<Pedido, LocalDateTime> llegadas = new HashMap<>();
 
             // 3. EVALUAR Y FILTRAR HASTA OBTENER K=20 CANDIDATOS VIABLES (ignorando bloqueados)
+            int[][] matrizDistancias = red.distanciasDesde(current, tiempo);
+            
             for (Pedido o : posibles) {
                 Ubicacion dest = o.getDestino() != null ? o.getDestino() : new Ubicacion(27, 14);
                 Nodo nodoCliente = red.obtenerNodo(dest.getPosX(), dest.getPosY());
                 if (nodoCliente == null) continue;
 
-                double d = red.distanciaMinima(current, nodoCliente, tiempo);
-                if (d == Double.MAX_VALUE) continue; // sin camino libre por bloqueos viales (RF-12)
+                double d;
+                if (matrizDistancias == null) {
+                    d = red.calcularDistancia(current, nodoCliente);
+                } else {
+                    int dist = matrizDistancias[dest.getPosX()][dest.getPosY()];
+                    if (dist == -1) continue; // No hay ruta libre de bloqueos
+                    d = (double) dist;
+                }
 
                 double tiempoViajeHoras = d / velocidadKmH;
                 long minutosViaje = (long) Math.ceil(tiempoViajeHoras * 60.0);

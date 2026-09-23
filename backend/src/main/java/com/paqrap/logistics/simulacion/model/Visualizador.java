@@ -58,7 +58,7 @@ public class Visualizador {
             Map<String, Object> datos = new HashMap<>();
             datos.put("id", u.getId());
             datos.put("codigo", u.getCodigo());
-            datos.put("tipo", u.getTipo() != null ? u.getTipo().getNombre() : "DESCONOCIDO");
+            datos.put("tipoNombre", u.getTipo() != null ? u.getTipo().getNombre() : "DESCONOCIDO");
             datos.put("estadoOperativo", u.getEstadoOperativo().name());
             datos.put("colorEstado", u.getEstadoOperativo().getCodigoColor());
             datos.put("ubicacion", u.getUbicacionActual());
@@ -82,7 +82,7 @@ public class Visualizador {
 
     public List<Map<String, Object>> obtenerPedidosConSemaforo() {
         List<Pedido> pedidosActivos = pedidoRepository.findByEstadoIn(
-                List.of(EstadoPedido.REGISTRADO, EstadoPedido.PLANIFICADO, EstadoPedido.EN_RUTA));
+                List.of(EstadoPedido.REGISTRADO, EstadoPedido.PLANIFICADO, EstadoPedido.EN_RUTA, EstadoPedido.ENTREGADO));
         return pedidosActivos.stream().map(p -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", p.getId());

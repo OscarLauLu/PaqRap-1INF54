@@ -62,9 +62,15 @@ public class RedVial {
 
     private final List<BloqueoVialInfo> listaBloqueos = new java.util.concurrent.CopyOnWriteArrayList<>();
 
+    private LocalDateTime lastInstanteCache = null;
+    private Set<String> lastAristasCache = null;
+
     public Set<String> aristasBloqueadasEn(LocalDateTime instante) {
         if (instante == null || listaBloqueos.isEmpty()) {
             return Collections.emptySet();
+        }
+        if (instante.equals(lastInstanteCache) && lastAristasCache != null) {
+            return lastAristasCache;
         }
         Set<String> activas = new HashSet<>();
         for (BloqueoVialInfo b : listaBloqueos) {
@@ -72,6 +78,8 @@ public class RedVial {
                 activas.addAll(b.getAristas());
             }
         }
+        lastInstanteCache = instante;
+        lastAristasCache = activas;
         return activas;
     }
 
@@ -344,35 +352,125 @@ public class RedVial {
             return distManhattan;
         }
 
-        Queue<Nodo> cola = new ArrayDeque<>();
-        Map<Nodo, Integer> dist = new HashMap<>();
-        cola.add(origen);
-        dist.put(origen, 0);
-        int[][] direcciones = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        int[][] dist = new int[anchoKm + 1][altoKm + 1];
+        for (int i = 0; i <= anchoKm; i++) {
+            java.util.Arrays.fill(dist[i], -1);
+        }
 
-        while (!cola.isEmpty()) {
-            Nodo actual = cola.poll();
-            int d = dist.get(actual);
-            if (actual.equals(destino)) {
+        // Usamos un array nativo para la cola para evitar objetos innecesarios
+        // Tamaño máximo = Nodos = 3621
+        int[] colaX = new int[4000];
+        int[] colaY = new int[4000];
+        int head = 0;
+        int tail = 0;
+
+        colaX[tail] = origen.getX();
+        colaY[tail] = origen.getY();
+        tail++;
+        dist[origen.getX()][origen.getY()] = 0;
+
+        int[][] direcciones = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        int destX = destino.getX();
+        int destY = destino.getY();
+
+        while (head < tail) {
+            int cx = colaX[head];
+            int cy = colaY[head];
+            head++;
+
+            int d = dist[cx][cy];
+            if (cx == destX && cy == destY) {
                 return (double) d;
             }
 
             for (int[] dir : direcciones) {
-                int nx = actual.getX() + dir[0];
-                int ny = actual.getY() + dir[1];
+                int nx = cx + dir[0];
+                int ny = cy + dir[1];
                 if (nx >= 0 && nx <= anchoKm && ny >= 0 && ny <= altoKm) {
-                    Nodo vecino = mallaNodos[nx][ny];
-                    if (!dist.containsKey(vecino)) {
-                        String claveTramo = obtenerClaveCanonica(actual.getX(), actual.getY(), nx, ny);
+                    if (dist[nx][ny] == -1) {
+                        String claveTramo = obtenerClaveCanonica(cx, cy, nx, ny);
                         if (!aristasBloqueadas.contains(claveTramo)) {
-                            dist.put(vecino, d + 1);
-                            cola.add(vecino);
+                            dist[nx][ny] = d + 1;
+                            colaX[tail] = nx;
+                            colaY[tail] = ny;
+                            tail++;
                         }
                     }
                 }
             }
         }
         return distManhattan * 1.5;
+    }
+
+    // Caché de distancias expansivas por Nodo origen (Memoization)
+    private final Map<Nodo, int[][]> distanciasCache = new ConcurrentHashMap<>();
+    private Set<String> aristasEnDistanciasCache = null;
+
+    /**
+     * Calcula la distancia más corta desde el nodo origen hacia TODOS los nodos de la red en un solo BFS.
+     * Retorna null si no hay bloqueos (para que el llamador use la distancia Manhattan directamente).
+     */
+    public int[][] distanciasDesde(Nodo origen, LocalDateTime instante) {
+        Set<String> aristasBloqueadas = aristasBloqueadasEn(instante);
+        
+        // Invalidar caché si el mapa de calles bloqueadas cambió
+        if (aristasEnDistanciasCache == null || !aristasEnDistanciasCache.equals(aristasBloqueadas)) {
+            distanciasCache.clear();
+            aristasEnDistanciasCache = new HashSet<>(aristasBloqueadas);
+        }
+
+        if (aristasBloqueadas.isEmpty()) {
+            return null; // Sin bloqueos, la distancia Manhattan es la mínima
+        }
+
+        // Si ya calculamos la onda desde esta esquina, retornamos la copia de la RAM
+        int[][] cached = distanciasCache.get(origen);
+        if (cached != null) {
+            return cached;
+        }
+
+        int[][] dist = new int[anchoKm + 1][altoKm + 1];
+        for (int i = 0; i <= anchoKm; i++) {
+            java.util.Arrays.fill(dist[i], -1);
+        }
+
+        int[] colaX = new int[4000];
+        int[] colaY = new int[4000];
+        int head = 0, tail = 0;
+
+        colaX[tail] = origen.getX();
+        colaY[tail] = origen.getY();
+        tail++;
+        dist[origen.getX()][origen.getY()] = 0;
+
+        int[][] direcciones = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+        while (head < tail) {
+            int cx = colaX[head];
+            int cy = colaY[head];
+            head++;
+            int d = dist[cx][cy];
+
+            for (int[] dir : direcciones) {
+                int nx = cx + dir[0];
+                int ny = cy + dir[1];
+                if (nx >= 0 && nx <= anchoKm && ny >= 0 && ny <= altoKm) {
+                    if (dist[nx][ny] == -1) {
+                        String claveTramo = obtenerClaveCanonica(cx, cy, nx, ny);
+                        if (!aristasBloqueadas.contains(claveTramo)) {
+                            dist[nx][ny] = d + 1;
+                            colaX[tail] = nx;
+                            colaY[tail] = ny;
+                            tail++;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Guardamos el cálculo en la memoria caché para la próxima hormiga
+        distanciasCache.put(origen, dist);
+        return dist;
     }
 
     public double distanciaMinima(Ubicacion origen, Ubicacion destino, LocalDateTime instante) {
