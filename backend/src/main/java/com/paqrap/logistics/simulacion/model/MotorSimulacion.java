@@ -156,8 +156,8 @@ public class MotorSimulacion {
         executorService.scheduleAtFixedRate(() -> {
             if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
-            // Avanzar 10 minutos simulados por tick
-            reloj.avanzar(10);
+            // Avanza según el tiempo real transcurrido, escalado por el factor de aceleración del escenario.
+            reloj.avanzar(java.time.Duration.ofMillis(500));
             LocalDateTime instanteActual = reloj.getInstanteActual();
 
             // --- Transacción 1: Procesar eventos (nuevos pedidos, bloqueos, averías) ---
