@@ -291,13 +291,13 @@ public class MotorSimulacion {
                     if (p.getHoraEstimadaLlegada() != null && !instante.isBefore(p.getHoraEstimadaLlegada())) {
                         log.info("✅ ENTREGANDO pedido {} en instante {}", p.getPedido().getCodigo(), instante);
                         p.registrarEntrega(instante);
-                        // Mover el camión a esta posición
+                        // Mover el camión a esta posición final
                         if (p.getPedido() != null && p.getPedido().getDestino() != null) {
                             r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(p.getPedido().getDestino().getPosX(), p.getPedido().getDestino().getPosY()));
                             p.getPedido().setEstado(com.paqrap.logistics.pedidos.model.EstadoPedido.ENTREGADO);
                             pedidoRepository.save(p.getPedido());
                             unidadRepository.save(r.getUnidadTransporte());
-                            rutaRepository.save(r); // <--- THIS WAS MISSING, ParadaRuta was never persisted!
+                            rutaRepository.save(r); 
                         }
                         
                         if (p.getPedido() != null) {
@@ -307,8 +307,43 @@ public class MotorSimulacion {
                                 pedidosEnPlazo++;
                             }
                         }
+                    } else if (p.getHoraEstimadaLlegada() != null) {
+                        // Interpolación visual suave (El vehículo está en tránsito hacia la parada p)
+                        int pos = r.getParadas().indexOf(p);
+                        LocalDateTime startTime;
+                        int startX, startY;
+                        if (pos == 0) {
+                            startTime = r.getFechaHoraGeneracion();
+                            startX = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosX() : 27;
+                            startY = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosY() : 14;
+                        } else {
+                            com.paqrap.logistics.planificacion.model.ParadaRuta prev = r.getParadas().get(pos - 1);
+                            startTime = prev.getHoraEstimadaLlegada().plusMinutes(prev.getTiempoServicioMin());
+                            startX = (prev.getPedido() != null && prev.getPedido().getDestino() != null) ? prev.getPedido().getDestino().getPosX() : 27;
+                            startY = (prev.getPedido() != null && prev.getPedido().getDestino() != null) ? prev.getPedido().getDestino().getPosY() : 14;
+                        }
+                        
+                        if (startTime != null && p.getPedido() != null && p.getPedido().getDestino() != null) {
+                            if (!instante.isBefore(startTime)) {
+                                long totalMin = java.time.Duration.between(startTime, p.getHoraEstimadaLlegada()).toMinutes();
+                                long elapsedMin = java.time.Duration.between(startTime, instante).toMinutes();
+                                if (totalMin > 0) {
+                                    double factor = (double) elapsedMin / totalMin;
+                                    factor = Math.max(0.0, Math.min(1.0, factor));
+                                    
+                                    int endX = p.getPedido().getDestino().getPosX();
+                                    int endY = p.getPedido().getDestino().getPosY();
+                                    
+                                    int currentX = (int) Math.round(startX + (endX - startX) * factor);
+                                    int currentY = (int) Math.round(startY + (endY - startY) * factor);
+                                    
+                                    r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(currentX, currentY));
+                                    unidadRepository.save(r.getUnidadTransporte());
+                                }
+                            }
+                        }
                     }
-                    // Si no está entregada, cortamos para no entregar la siguiente
+                    // Si no está entregada, cortamos para no evaluar las siguientes paradas
                     break;
                 }
             }

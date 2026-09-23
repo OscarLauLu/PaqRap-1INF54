@@ -115,8 +115,16 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
         while (!pedidosPendientes.isEmpty()) {
             boolean huboProgreso = false;
             
-            // Ordenar flota para despachar primero al vehículo que se libera antes
-            flota.sort((v1, v2) -> vehiculoDisponibleDesde.get(v1).compareTo(vehiculoDisponibleDesde.get(v2)));
+            // Ordenar flota para despachar primero al vehículo que se libera antes.
+            // En caso de empate (ej: inicio del día), priorizar los de MENOR capacidad (Bicis y Motos)
+            // para que los Autos grandes no acaparen todos los pedidos pequeños cercanos.
+            flota.sort((v1, v2) -> {
+                int cmpTime = vehiculoDisponibleDesde.get(v1).compareTo(vehiculoDisponibleDesde.get(v2));
+                if (cmpTime != 0) return cmpTime;
+                int cap1 = (v1.getTipo() != null) ? v1.getTipo().getCapacidadMaxima() : 24;
+                int cap2 = (v2.getTipo() != null) ? v2.getTipo().getCapacidadMaxima() : 24;
+                return Integer.compare(cap1, cap2);
+            });
 
             for (UnidadTransporte vehiculo : flota) {
                 if (pedidosPendientes.isEmpty()) break;
