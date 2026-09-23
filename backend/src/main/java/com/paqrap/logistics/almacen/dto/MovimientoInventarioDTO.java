@@ -13,7 +13,6 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MovimientoInventarioDTO {
-    private Long id;
     private String codigo;
     private String almacenCodigo;
     private String almacenNombre;

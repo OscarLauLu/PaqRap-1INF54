@@ -54,6 +54,15 @@ public class VisualizadorController {
         return ResponseEntity.ok(visualizador.resaltarBloqueosYAverias());
     }
 
+    @GetMapping("/semaforo")
+    @Operation(summary = "Consultar los rangos actuales del semáforo de criticidad (RF-59)", description = "Valores vigentes en el backend, en horas, para precargar la pantalla de configuración.")
+    public ResponseEntity<Map<String, Object>> obtenerSemaforo() {
+        return ResponseEntity.ok(Map.of(
+                "horasVerde", configuracionSemaforo.getUmbralVerdeMin().toHours(),
+                "horasAmbar", configuracionSemaforo.getUmbralAmbarMin().toHours()
+        ));
+    }
+
     @PutMapping("/semaforo")
     @Operation(summary = "Configurar rangos de tiempo del semáforo de criticidad (RF-59)", description = "Aplica los nuevos umbrales en caliente sin reiniciar el sistema")
     public ResponseEntity<String> actualizarSemaforo(

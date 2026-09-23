@@ -7,10 +7,8 @@ interface MapaOperacionesProps {
   almacenes: Almacen[];
   unidades: UnidadTransporte[];
   pedidos: Pedido[];
-  selectedUnidadId: number | null;
-  onSelectUnidad: (id: number) => void;
-  /** Opcional: si no se pasa, el mapa se ve exactamente igual que antes. */
-  bloqueos?: BloqueoVial[];
+  selectedUnidadCodigo: string | null;
+  onSelectUnidad: (codigo: string) => void;
 }
 
 /** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */
@@ -24,7 +22,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   almacenes,
   unidades,
   pedidos,
-  selectedUnidadId,
+  selectedUnidadCodigo,
   onSelectUnidad,
   bloqueos = [],
 }) => {
@@ -91,11 +89,12 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         {almacenes.map((alm) => {
           const ax = toSvgX(alm.ubicacion.posX);
           const ay = toSvgY(alm.ubicacion.posY);
-          const letra = alm.tipo === 'CENTRAL' ? 'C' : alm.nombre.includes('Norte') ? 'N' : 'E';
-          const color = alm.tipo === 'CENTRAL' ? '#DC2626' : alm.nombre.includes('Norte') ? '#F97316' : '#9333EA';
+          const esNoroeste = /n[-\s]?o/i.test(alm.nombre) || alm.nombre.toLowerCase().includes('norte');
+          const letra = alm.tipo === 'CENTRAL' ? 'C' : esNoroeste ? 'N' : 'E';
+          const color = alm.tipo === 'CENTRAL' ? '#DC2626' : esNoroeste ? '#F97316' : '#9333EA';
 
           return (
-            <g key={`alm-${alm.id}`} transform={`translate(${ax}, ${ay})`} className="cursor-pointer">
+            <g key={`alm-${alm.codigo}`} transform={`translate(${ax}, ${ay})`} className="cursor-pointer">
               <rect x="-1.5" y="-1.5" width="3" height="3" rx="0.5" fill={color} />
               <path d="M -1 -0.2 L 0 -1.2 L 1 -0.2" stroke="white" strokeWidth="0.2" fill="none" />
               <text x="0" y="1" textAnchor="middle" fill="white" fontSize="1.5" fontWeight="bold">{letra}</text>
@@ -107,19 +106,18 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         {unidades.map((u) => {
           const ux = toSvgX(u.ubicacionActual.posX);
           const uy = toSvgY(u.ubicacionActual.posY);
-          const isSelected = u.id === selectedUnidadId;
+          const isSelected = u.codigo === selectedUnidadCodigo;
           const bgColor = u.tipoNombre === 'Auto' ? '#3B82F6' : u.tipoNombre === 'Moto' ? '#16A34A' : '#EAB308';
-          const shortCode = u.tipoNombre.charAt(0) + u.id;
 
           return (
-            <g key={`vehiculo-${u.id}`} transform={`translate(${ux}, ${uy})`} onClick={() => onSelectUnidad(u.id)} className="cursor-pointer group">
+            <g key={`vehiculo-${u.codigo}`} transform={`translate(${ux}, ${uy})`} onClick={() => onSelectUnidad(u.codigo)} className="cursor-pointer group">
               {isSelected && <circle r="2.5" fill="none" stroke="#60A5FA" strokeWidth="0.3" className="animate-pulse" />}
               {u.tipoNombre === 'Auto' ? (
                 <Car width={2.5} height={2.5} x="-1.25" y="-1.25" stroke={bgColor} strokeWidth={2} />
               ) : (
                 <Bike width={2.5} height={2.5} x="-1.25" y="-1.25" stroke={bgColor} strokeWidth={2} />
               )}
-              <text x="0" y="2" textAnchor="middle" fontSize="1" fontWeight="bold" fill="#1F2937">{shortCode}</text>
+              <text x="0" y="2" textAnchor="middle" fontSize="1" fontWeight="bold" fill="#1F2937">{u.codigo}</text>
             </g>
           );
         })}

@@ -1,5 +1,6 @@
 package com.paqrap.logistics.redvial.service;
 
+import com.paqrap.logistics.redvial.dto.CrearBloqueoManualDTO;
 import com.paqrap.logistics.redvial.model.Bloqueo;
 import com.paqrap.logistics.redvial.model.Nodo;
 import com.paqrap.logistics.redvial.model.RedVial;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -63,5 +65,30 @@ public class RedVialService {
         }
         log.info("Persistidos y procesados {} bloqueos viales desde {}", cargados.size(), rutaArchivo);
         return cargados;
+    }
+
+    /**
+     * Registra manualmente un bloqueo individual (a diferencia de la carga masiva por
+     * archivo mensual). Distinto flujo en el frontend: "Registro manual" vs "Subir archivo".
+     */
+    @Transactional
+    public Bloqueo registrarBloqueoManual(CrearBloqueoManualDTO dto) {
+        Bloqueo bloqueo = Bloqueo.builder()
+                .codigo("BLOQ-MAN-" + UUID.randomUUID().toString().substring(0, 8))
+                .fechaHoraInicio(dto.getFechaHoraInicio())
+                .fechaHoraFin(dto.getFechaHoraFin())
+                .coordenadasNodos(dto.getCoordenadasNodos())
+                .archivoOrigen("MANUAL")
+                .activo(false)
+                .build();
+
+        bloqueoRepository.save(bloqueo);
+        if (bloqueo.estaVigente(LocalDateTime.now())) {
+            bloqueo.activar();
+            redVial.aplicarBloqueo(bloqueo);
+            bloqueoRepository.save(bloqueo);
+        }
+        log.info("Bloqueo manual registrado: {}", bloqueo.getCodigo());
+        return bloqueo;
     }
 }

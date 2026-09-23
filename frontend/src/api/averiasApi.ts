@@ -1,12 +1,29 @@
+import { apiClient } from './client';
 import type { AveriaRegistrada, NuevaAveriaDatos } from '../types/registro';
 
 /**
- * PASO 1: no guarda nada, solo devuelve el registro con un id.
- * PASO 4: reemplazar por un POST al backend (ej. /api/flota/unidades/{id}/averia,
- * que ya existe en flotaApi) sin tocar el componente.
+ * Registra la avería vía POST /api/flota/unidades/{codigo}/averia (FlotaController.java).
+ * La hora de reincorporación y el estado los calcula el backend a partir del tipo
+ * (Averia.calcularReincorporacion, RF-14) — no se envían ni se piden al usuario.
  */
 export const averiasApi = {
   async registrar(datos: NuevaAveriaDatos): Promise<AveriaRegistrada> {
-    return { ...datos, id: `AV-${Date.now()}` };
+    const response = await apiClient.post(`/api/flota/unidades/${encodeURIComponent(datos.idUnidad)}/averia`, {
+      tipo: datos.tipo,
+      ubicacionX: datos.ubicacion.posX,
+      ubicacionY: datos.ubicacion.posY,
+      origenManual: true,
+    });
+    const a = response.data;
+    return {
+      id: a.id,
+      codigo: a.codigo,
+      idUnidad: datos.idUnidad,
+      ubicacion: datos.ubicacion,
+      tipo: datos.tipo,
+      fechaHoraEvento: a.fechaHoraEvento,
+      horaReincorporacion: a.horaReincorporacion,
+      resuelta: a.resuelta,
+    };
   },
 };

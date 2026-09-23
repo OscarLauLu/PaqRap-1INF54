@@ -8,8 +8,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
-public interface MovimientoInventarioRepository extends JpaRepository<MovimientoInventario, Long> {
-    List<MovimientoInventario> findByAlmacenIdOrderByFechaHoraDesc(Long almacenId);
-    List<MovimientoInventario> findByAlmacenIdAndFechaHoraBetweenOrderByFechaHoraDesc(
-            Long almacenId, LocalDateTime desde, LocalDateTime hasta);
+public interface MovimientoInventarioRepository extends JpaRepository<MovimientoInventario, String> {
+    // Antes findByAlmacenId...(Long): Almacen usa ahora "codigo" (String) como PK.
+    List<MovimientoInventario> findByAlmacenCodigoOrderByFechaHoraDesc(String almacenCodigo);
+    List<MovimientoInventario> findByAlmacenCodigoAndFechaHoraBetweenOrderByFechaHoraDesc(
+            String almacenCodigo, LocalDateTime desde, LocalDateTime hasta);
 }

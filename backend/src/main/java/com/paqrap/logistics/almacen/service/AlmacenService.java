@@ -44,16 +44,16 @@ public class AlmacenService {
     }
 
     @Transactional(readOnly = true)
-    public AlmacenDTO obtenerAlmacen(Long id) {
+    public AlmacenDTO obtenerAlmacen(String id) {
         Almacen a = almacenRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Almacen", "id", id));
         return mapearADTO(a);
     }
 
     @Transactional(readOnly = true)
-    public List<MovimientoInventarioDTO> obtenerHistorial(Long almacenId, int dias) {
+    public List<MovimientoInventarioDTO> obtenerHistorial(String almacenId, int dias) {
         LocalDateTime corte = LocalDateTime.now().minusDays(dias > 0 ? dias : 5);
-        return movimientoRepository.findByAlmacenIdAndFechaHoraBetweenOrderByFechaHoraDesc(
+        return movimientoRepository.findByAlmacenCodigoAndFechaHoraBetweenOrderByFechaHoraDesc(
                 almacenId, corte, LocalDateTime.now()).stream()
                 .map(this::mapearMovimientoADTO)
                 .collect(Collectors.toList());
@@ -81,7 +81,7 @@ public class AlmacenService {
      * Carga manual de inventario validando no superar 1,000 unidades en almacén intermedio (RF-19).
      */
     @Transactional
-    public MovimientoInventarioDTO cargarInventario(Long almacenId, int cantidad) {
+    public MovimientoInventarioDTO cargarInventario(String almacenId, int cantidad) {
         Almacen a = almacenRepository.findById(almacenId)
                 .orElseThrow(() -> new ResourceNotFoundException("Almacen", "id", almacenId));
 
@@ -101,6 +101,7 @@ public class AlmacenService {
         MovimientoInventario mov = MovimientoInventario.builder()
                 .codigo("CAR-" + UUID.randomUUID().toString().substring(0, 8))
                 .almacen(a)
+                .rutaCodigo(null)
                 .tipo(TipoMovimiento.CARGA)
                 .cantidad(cantidad)
                 .fechaHora(LocalDateTime.now())
@@ -138,7 +139,6 @@ public class AlmacenService {
         }
 
         return AlmacenDTO.builder()
-                .id(a.getId())
                 .codigo(a.getCodigo())
                 .nombre(a.getNombre())
                 .tipo(esCentral ? "CENTRAL" : "INTERMEDIO")
@@ -152,7 +152,6 @@ public class AlmacenService {
 
     private MovimientoInventarioDTO mapearMovimientoADTO(MovimientoInventario m) {
         return MovimientoInventarioDTO.builder()
-                .id(m.getId())
                 .codigo(m.getCodigo())
                 .almacenCodigo(m.getAlmacen() != null ? m.getAlmacen().getCodigo() : null)
                 .almacenNombre(m.getAlmacen() != null ? m.getAlmacen().getNombre() : null)

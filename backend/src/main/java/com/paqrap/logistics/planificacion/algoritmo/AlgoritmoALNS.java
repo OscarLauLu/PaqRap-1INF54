@@ -231,15 +231,13 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
     private List<Almacen> crearAlmacenesPorDefecto() {
         List<Almacen> lista = new ArrayList<>();
         AlmacenCentral central = new AlmacenCentral();
-        central.setId(1L);
         central.setCodigo("ALM-CEN-01");
         central.setNombre("Almacén Central");
         central.setUbicacion(new Ubicacion(27, 14));
-        central.setStockActual(999999);
+        // stock infinito: stock_actual queda NULL (CHECK de la tabla "almacen", documento 62)
         lista.add(central);
 
         AlmacenIntermedio int1 = new AlmacenIntermedio();
-        int1.setId(2L);
         int1.setCodigo("ALM-INT-01");
         int1.setNombre("Almacén Intermedio Nor-Oeste");
         int1.setUbicacion(new Ubicacion(12, 38));
@@ -249,7 +247,6 @@ public class AlgoritmoALNS implements AlgoritmoRuteo {
         lista.add(int1);
 
         AlmacenIntermedio int2 = new AlmacenIntermedio();
-        int2.setId(3L);
         int2.setCodigo("ALM-INT-02");
         int2.setNombre("Almacén Intermedio Este");
         int2.setUbicacion(new Ubicacion(57, 27));

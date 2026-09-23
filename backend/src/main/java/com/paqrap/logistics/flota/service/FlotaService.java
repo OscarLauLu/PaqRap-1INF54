@@ -10,11 +10,13 @@ import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.Conductor;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.TipoVehiculo;
+import com.paqrap.logistics.flota.model.Turno;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.AsignacionTurnoRepository;
 import com.paqrap.logistics.flota.repository.AveriaRepository;
 import com.paqrap.logistics.flota.repository.ConductorRepository;
 import com.paqrap.logistics.flota.repository.TipoVehiculoRepository;
+import com.paqrap.logistics.flota.repository.TurnoRepository;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
 import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.simulacion.model.Alerta;
@@ -44,6 +46,7 @@ public class FlotaService {
     private final TipoVehiculoRepository tipoVehiculoRepository;
     private final ConductorRepository conductorRepository;
     private final AsignacionTurnoRepository asignacionTurnoRepository;
+    private final TurnoRepository turnoRepository;
     private final AveriaRepository averiaRepository;
     private final AlertaRepository alertaRepository;
 
@@ -64,16 +67,16 @@ public class FlotaService {
     }
 
     @Transactional(readOnly = true)
-    public UnidadTransporteDTO obtenerUnidad(Long id) {
+    public UnidadTransporteDTO obtenerUnidad(String id) {
         UnidadTransporte u = unidadRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", id));
         return mapearADTO(u);
     }
 
     @Transactional
-    public UnidadTransporteDTO cambiarEstadoOperativo(Long id, EstadoOperativo nuevoEstado) {
+    public UnidadTransporteDTO cambiarEstadoOperativo(String id, EstadoOperativo nuevoEstado) {
         UnidadTransporte u = unidadRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", id));
 
         u.cambiarEstado(nuevoEstado);
         UnidadTransporte guardada = unidadRepository.save(u);
@@ -85,9 +88,9 @@ public class FlotaService {
      * Registra un evento de avería y genera una alerta visible (RF-14, RF-45).
      */
     @Transactional
-    public Averia registrarAveria(Long unidadId, RegistrarAveriaDTO dto) {
+    public Averia registrarAveria(String unidadId, RegistrarAveriaDTO dto) {
         UnidadTransporte u = unidadRepository.findById(unidadId)
-                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "id", unidadId));
+                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", unidadId));
 
         LocalDateTime ahora = LocalDateTime.now();
         Ubicacion ubicacion = new Ubicacion(dto.getUbicacionX(), dto.getUbicacionY());
@@ -148,21 +151,31 @@ public class FlotaService {
     }
 
     /**
-     * Asigna un conductor a una unidad validando turno y hora de alimentación (RF-43, RF-44).
+     * Asigna un conductor a una unidad para un turno y fecha específicos, validando la hora de
+     * alimentación (RF-43, RF-44). Desde el remodelado a clave natural, el turno ya no es un
+     * atributo fijo del conductor (docs/62.dis.base.datos.postgresql.v01.md): debe indicarse
+     * explícitamente el turnoId de la asignación (catálogo sembrado en data.sql: 1=Mañana
+     * 07:00-15:00, 2=Tarde 15:00-23:00, 3=Noche 23:00-07:00).
      */
     @Transactional
-    public AsignacionTurno asignarConductor(Long unidadId, Long conductorId, LocalDate fecha, LocalTime inicioAlimentacion) {
+    public AsignacionTurno asignarConductor(String unidadId, String conductorId, Integer turnoId,
+                                             LocalDate fecha, LocalTime inicioAlimentacion) {
         UnidadTransporte unidad = unidadRepository.findById(unidadId)
-                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "id", unidadId));
+                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", unidadId));
         Conductor conductor = conductorRepository.findById(conductorId)
-                .orElseThrow(() -> new ResourceNotFoundException("Conductor", "id", conductorId));
+                .orElseThrow(() -> new ResourceNotFoundException("Conductor", "codigo", conductorId));
+        if (turnoId == null) {
+            throw new BusinessException("Debe indicar el turnoId de la asignación (1=Mañana, 2=Tarde, 3=Noche)");
+        }
+        Turno turno = turnoRepository.findById(turnoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Turno", "id", turnoId));
 
         AsignacionTurno asignacion = AsignacionTurno.builder()
                 .unidad(unidad)
                 .conductor(conductor)
-                .turno(conductor.getTurno())
+                .turno(turno)
                 .fecha(fecha != null ? fecha : LocalDate.now())
-                .horaInicioAlimentacion(inicioAlimentacion != null ? inicioAlimentacion : conductor.getTurno().getHoraInicio().plusHours(3))
+                .horaInicioAlimentacion(inicioAlimentacion != null ? inicioAlimentacion : turno.getHoraInicio().plusHours(3))
                 .duracionAlimentacionMin(60)
                 .build();
 
@@ -173,15 +186,13 @@ public class FlotaService {
             throw new BusinessException("La pausa de alimentación debe ser de 60 min y estar al menos 60 min después del inicio y antes del fin del turno (RF-44)");
         }
 
-        unidad.setConductorAsignado(conductor);
-        unidadRepository.save(unidad);
         return asignacionTurnoRepository.save(asignacion);
     }
 
     @Transactional
-    public void darDeBajaUnidad(Long id) {
+    public void darDeBajaUnidad(String id) {
         UnidadTransporte u = unidadRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", id));
         u.darDeBaja();
         unidadRepository.save(u);
         log.info("Unidad {} dada de baja exitosamente (RF-47).", u.getCodigo());
@@ -192,7 +203,6 @@ public class FlotaService {
         double pctCarga = (capMax > 0) ? (u.getCargaActual() * 100.0) / capMax : 0.0;
 
         return UnidadTransporteDTO.builder()
-                .id(u.getId())
                 .codigo(u.getCodigo())
                 .tipoNombre(u.getTipo() != null ? u.getTipo().getNombre() : null)
                 .capacidadMaxima(capMax)
@@ -204,8 +214,21 @@ public class FlotaService {
                 .estadoOperativo(u.getEstadoOperativo())
                 .colorEstado(u.getEstadoOperativo().getCodigoColor())
                 .ubicacionActual(u.getUbicacionActual())
-                .nombreConductor(u.getConductorAsignado() != null ? u.getConductorAsignado().getNombre() : "Sin asignar")
+                .nombreConductor(nombreConductorDeHoy(u))
                 .activo(u.isActivo())
                 .build();
+    }
+
+    /**
+     * El conductor ya no es una FK fija de la unidad: se busca la asignación de turno vigente
+     * para hoy (docs/62, sección 5). Si no hay ninguna, se muestra "Sin asignar".
+     */
+    private String nombreConductorDeHoy(UnidadTransporte u) {
+        LocalDate hoy = LocalDate.now();
+        return asignacionTurnoRepository.findByUnidadCodigo(u.getCodigo()).stream()
+                .filter(a -> hoy.equals(a.getFecha()))
+                .findFirst()
+                .map(a -> a.getConductor() != null ? a.getConductor().getNombre() : null)
+                .orElse("Sin asignar");
     }
 }
