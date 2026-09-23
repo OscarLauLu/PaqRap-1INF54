@@ -165,14 +165,7 @@ public class Planificador {
         List<Almacen> almacenes = almacenRepository.findAll();
         if (almacenes.isEmpty()) return null;
 
-        // Priorizar almacén central
-        for (Almacen a : almacenes) {
-            if (a instanceof AlmacenCentral) {
-                return a;
-            }
-        }
-
-        // Si no, buscar almacén más cercano con stock suficiente
+        // Buscar el almacén más cercano que tenga stock suficiente
         if (pedido != null && pedido.getDestino() != null) {
             Ubicacion dest = pedido.getDestino();
             return almacenes.stream()
@@ -181,6 +174,7 @@ public class Planificador {
                     .orElse(almacenes.get(0));
         }
 
+        // Si no hay pedido válido, retornar el primer almacén disponible
         return almacenes.get(0);
     }
 
