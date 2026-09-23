@@ -4,7 +4,7 @@ import { flotaApi } from '../api/flotaApi';
 
 export function useFlota(pollIntervalMs: number = 4000) {
   const [unidades, setUnidades] = useState<UnidadTransporte[]>([]);
-  const [selectedUnidadId, setSelectedUnidadId] = useState<number | null>(4); // Moto M4 por defecto como en la maqueta
+  const [selectedUnidadCodigo, setSelectedUnidadCodigo] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,13 +28,13 @@ export function useFlota(pollIntervalMs: number = 4000) {
     }
   }, [fetchUnidades, pollIntervalMs]);
 
-  const selectedUnidad = unidades.find((u) => u.id === selectedUnidadId) || unidades[0] || null;
+  const selectedUnidad = unidades.find((u) => u.codigo === selectedUnidadCodigo) || null;
 
   return {
     unidades,
     selectedUnidad,
-    selectedUnidadId,
-    setSelectedUnidadId,
+    selectedUnidadCodigo,
+    setSelectedUnidadCodigo,
     loading,
     error,
     refresh: fetchUnidades,

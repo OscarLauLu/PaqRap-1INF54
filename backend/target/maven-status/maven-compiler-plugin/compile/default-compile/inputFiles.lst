@@ -13,6 +13,7 @@ C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\almacen\model\AlmacenCentral.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\simulation\dto\SimulationConfigDTO.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\simulation\model\SimulationResult.java
+C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\common\controller\ArchivoController.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\planificacion\model\Ruta.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\common\util\GridUtils.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\redvial\model\Nodo.java
@@ -90,6 +91,7 @@ C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\common\exception\InsufficientStockException.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\flota\model\UnidadTransporte.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\simulation\engine\SimulationEngine.java
+C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\redvial\dto\CrearBloqueoManualDTO.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\common\enums\OrderStatus.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\simulation\dto\SimulationMetricsDTO.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\almacen\model\AlmacenIntermedio.java
@@ -103,6 +105,7 @@ C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\almacen\controller\AlmacenController.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\planificacion\algoritmo\aco\Hormiga.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\flota\dto\UnidadTransporteDTO.java
+C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\common\service\ArchivoStorageService.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\planificacion\model\ParadaRuta.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\planificacion\algoritmo\alns\CapacidadAlmacenDestroyOperator.java
 C:\Users\USUARIO\OneDrive\Escritorio\DP1_PaqRaq\PROYECTO-DE-DISE-O-Y-DESARROLLO-DE-SOFTWARE-1INF54-0983-\backend\src\main\java\com\paqrap\logistics\simulacion\repository\ResultadoSimulacionRepository.java

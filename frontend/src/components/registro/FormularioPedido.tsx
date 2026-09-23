@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, Clock, FileText } from 'lucide-react';
-import { PLAZOS_HORAS, TIPOS_ENTREGA } from '../../types/registro';
+import { PLAZOS_POR_TIPO, TIPOS_ENTREGA } from '../../types/registro';
 import type { NuevoPedidoDatos, TipoEntregaRegistro } from '../../types/registro';
 import { formatFecha, formatHora, parseUbicacion } from './utils';
 import { inputBase } from './estilos';
@@ -20,10 +20,17 @@ export const FormularioPedido: React.FC<Props> = ({ onSubmit }) => {
   const [cliente, setCliente] = useState('');
   const [ubicacion, setUbicacion] = useState('');
   const [cantidad, setCantidad] = useState('');
-  const [tipoEntrega, setTipoEntrega] = useState<TipoEntregaRegistro>(TIPOS_ENTREGA[0]);
-  const [plazoHoras, setPlazoHoras] = useState<number>(PLAZOS_HORAS[0]);
+  const [tipoEntrega, setTipoEntrega] = useState<TipoEntregaRegistro>(TIPOS_ENTREGA[1]);
+  const [plazoHoras, setPlazoHoras] = useState<number>(PLAZOS_POR_TIPO[TIPOS_ENTREGA[1]][0]);
   const [errores, setErrores] = useState<Errores>({});
   const [ahora, setAhora] = useState(() => new Date());
+
+  const plazosDisponibles = PLAZOS_POR_TIPO[tipoEntrega];
+
+  const cambiarTipoEntrega = (nuevo: TipoEntregaRegistro) => {
+    setTipoEntrega(nuevo);
+    setPlazoHoras(PLAZOS_POR_TIPO[nuevo][0]);
+  };
 
   // La fecha y hora de registro son automáticas: se refrescan cada 30 s
   useEffect(() => {
@@ -55,8 +62,7 @@ export const FormularioPedido: React.FC<Props> = ({ onSubmit }) => {
     setCliente('');
     setUbicacion('');
     setCantidad('');
-    setTipoEntrega(TIPOS_ENTREGA[0]);
-    setPlazoHoras(PLAZOS_HORAS[0]);
+    cambiarTipoEntrega(TIPOS_ENTREGA[1]);
   };
 
   return (
@@ -119,7 +125,7 @@ export const FormularioPedido: React.FC<Props> = ({ onSubmit }) => {
           <div className="relative">
             <select
               value={tipoEntrega}
-              onChange={(e) => setTipoEntrega(e.target.value as TipoEntregaRegistro)}
+              onChange={(e) => cambiarTipoEntrega(e.target.value as TipoEntregaRegistro)}
               className={`${inputBase} appearance-none bg-white pr-10`}
             >
               {TIPOS_ENTREGA.map((t) => (
@@ -137,9 +143,10 @@ export const FormularioPedido: React.FC<Props> = ({ onSubmit }) => {
             <select
               value={plazoHoras}
               onChange={(e) => setPlazoHoras(Number(e.target.value))}
-              className={`${inputBase} appearance-none bg-white pr-10`}
+              disabled={plazosDisponibles.length === 1}
+              className={`${inputBase} appearance-none bg-white pr-10 disabled:bg-gray-100`}
             >
-              {PLAZOS_HORAS.map((h) => (
+              {plazosDisponibles.map((h) => (
                 <option key={h} value={h}>
                   {h}h
                 </option>

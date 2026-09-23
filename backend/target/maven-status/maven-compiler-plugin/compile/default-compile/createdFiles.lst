@@ -17,6 +17,7 @@ com\paqrap\logistics\common\enums\VehicleType.class
 com\paqrap\logistics\planificacion\model\ParadaRuta.class
 com\paqrap\logistics\simulacion\model\CargadorArchivos.class
 com\paqrap\logistics\planificacion\algoritmo\alns\HolguraGreedyRepairOperator.class
+com\paqrap\logistics\redvial\dto\CrearBloqueoManualDTO$CrearBloqueoManualDTOBuilder.class
 com\paqrap\logistics\flota\service\FlotaService.class
 com\paqrap\logistics\simulation\dto\SimulationComparisonDTO.class
 com\paqrap\logistics\planificacion\repository\RutaRepository.class
@@ -32,6 +33,7 @@ com\paqrap\logistics\simulacion\model\ResultadoSimulacion$ResultadoSimulacionBui
 com\paqrap\logistics\simulacion\model\TipoAlerta.class
 com\paqrap\logistics\planificacion\algoritmo\AlgoritmoACO.class
 com\paqrap\logistics\simulation\dto\SimulationResultDTO.class
+com\paqrap\logistics\common\service\ArchivoStorageService.class
 com\paqrap\logistics\common\enums\OrderStatus.class
 com\paqrap\logistics\redvial\model\Tramo.class
 com\paqrap\logistics\simulacion\model\MotorSimulacion$1.class
@@ -53,6 +55,7 @@ com\paqrap\logistics\simulacion\repository\AlertaRepository.class
 com\paqrap\logistics\almacen\repository\MovimientoInventarioRepository.class
 com\paqrap\logistics\simulation\model\SimulationResult.class
 com\paqrap\logistics\flota\model\AsignacionTurno.class
+com\paqrap\logistics\common\controller\ArchivoController.class
 com\paqrap\logistics\simulacion\model\IndicadorDesempeno$IndicadorDesempenoBuilder.class
 com\paqrap\logistics\pedidos\dto\CrearPedidoDTO.class
 com\paqrap\logistics\planificacion\model\Ruta.class
@@ -153,6 +156,7 @@ com\paqrap\logistics\pedidos\model\TipoEntrega.class
 com\paqrap\logistics\LogisticsApplication.class
 com\paqrap\logistics\common\enums\DeliveryType.class
 com\paqrap\logistics\planificacion\algoritmo\alns\CapacidadAlmacenDestroyOperator.class
+com\paqrap\logistics\redvial\dto\CrearBloqueoManualDTO.class
 com\paqrap\logistics\common\util\GridUtils.class
 com\paqrap\logistics\flota\repository\ConductorRepository.class
 com\paqrap\logistics\simulacion\model\Visualizador.class
