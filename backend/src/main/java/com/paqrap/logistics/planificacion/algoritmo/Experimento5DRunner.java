@@ -273,22 +273,20 @@ public class Experimento5DRunner {
 
     private static List<UnidadTransporte> crearFlota(boolean conAverias) {
         List<UnidadTransporte> flota = new ArrayList<>();
-        TipoVehiculo auto = TipoVehiculo.builder().id(1L).nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(20.0).costoPorKm(8.0).build();
-        TipoVehiculo moto = TipoVehiculo.builder().id(2L).nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(40.0).costoPorKm(6.0).build();
-        TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(14.0).costoPorKm(3.0).build();
+        TipoVehiculo auto = TipoVehiculo.builder().codigo("TA").nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(20.0).costoPorKm(8.0).build();
+        TipoVehiculo moto = TipoVehiculo.builder().codigo("TM").nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(40.0).costoPorKm(6.0).build();
+        TipoVehiculo bici = TipoVehiculo.builder().codigo("TB").nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(14.0).costoPorKm(3.0).build();
 
-        long id = 1;
         // 4 Autos
         for (int i = 1; i <= 4; i++) {
             String codigo = String.format("TA%02d", i);
             boolean averiado = conAverias && "TA02".equals(codigo);
             flota.add(UnidadTransporte.builder()
-                    .id(id++)
                     .codigo(codigo)
                     .tipo(auto)
                     .estadoOperativo(averiado ? EstadoOperativo.AVERIADA : EstadoOperativo.DISPONIBLE)
                     .ubicacionActual(new Ubicacion(27, 14))
-                    .activo(!averiado)
+                    .dadaDeBaja(averiado)
                     .build());
         }
 
@@ -297,12 +295,11 @@ public class Experimento5DRunner {
             String codigo = String.format("TM%02d", i);
             boolean averiada = conAverias && "TM01".equals(codigo);
             flota.add(UnidadTransporte.builder()
-                    .id(id++)
                     .codigo(codigo)
                     .tipo(moto)
                     .estadoOperativo(averiada ? EstadoOperativo.AVERIADA : EstadoOperativo.DISPONIBLE)
                     .ubicacionActual(new Ubicacion(27, 14))
-                    .activo(!averiada)
+                    .dadaDeBaja(averiada)
                     .build());
         }
 
@@ -310,12 +307,11 @@ public class Experimento5DRunner {
         for (int i = 1; i <= 3; i++) {
             String codigo = String.format("TB%02d", i);
             flota.add(UnidadTransporte.builder()
-                    .id(id++)
                     .codigo(codigo)
                     .tipo(bici)
                     .estadoOperativo(EstadoOperativo.DISPONIBLE)
                     .ubicacionActual(new Ubicacion(27, 14))
-                    .activo(true)
+                    .dadaDeBaja(false)
                     .build());
         }
 

@@ -65,6 +65,28 @@ public class SimulacionController {
         return ResponseEntity.ok(resp);
     }
 
+    @GetMapping("/metricas")
+    @Operation(summary = "Consultar métricas acumuladas en tiempo real de la corrida activa (RF-73, RF-74)",
+            description = "Costo acumulado, entregas por tipo de vehículo, incidencias ocurridas y datos del colapso si ya se detectó.")
+    public ResponseEntity<Map<String, Object>> consultarMetricas() {
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("totalPedidosIngresados", motorSimulacion.getTotalPedidosIngresados());
+        resp.put("pedidosEnPlazo", motorSimulacion.getPedidosEnPlazo());
+        resp.put("pedidosTarde", motorSimulacion.getPedidosTarde());
+        resp.put("costoAcumuladoTotal", motorSimulacion.getCostoAcumuladoTotal());
+        resp.put("costoAuto", motorSimulacion.getCostoAuto());
+        resp.put("costoMoto", motorSimulacion.getCostoMoto());
+        resp.put("costoBici", motorSimulacion.getCostoBici());
+        resp.put("entregasAuto", motorSimulacion.getEntregasAuto());
+        resp.put("entregasMoto", motorSimulacion.getEntregasMoto());
+        resp.put("entregasBici", motorSimulacion.getEntregasBici());
+        resp.put("bloqueosOcurridos", motorSimulacion.getBloqueosOcurridos());
+        resp.put("averiasOcurridas", motorSimulacion.getAveriasOcurridas());
+        resp.put("instanteColapso", motorSimulacion.getInstanteColapsoDetectado());
+        resp.put("volumenPedidosColapso", motorSimulacion.getVolumenPedidosColapsoDetectado());
+        return ResponseEntity.ok(resp);
+    }
+
     @GetMapping("/resultados")
     @Operation(summary = "Listar el histórico de resultados de simulaciones ejecutadas (RF-74)")
     public ResponseEntity<List<ResultadoSimulacion>> listarResultados() {

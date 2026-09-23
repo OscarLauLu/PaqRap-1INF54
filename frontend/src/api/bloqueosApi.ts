@@ -1,12 +1,33 @@
+import { apiClient } from './client';
+import type { BloqueoVial } from '../types';
+import type { NuevoBloqueoDatos } from '../types/registro';
+
 /**
- * PASO 1: solo lee el archivo en el navegador y cuenta las líneas.
- * PASO 4: reemplazar por un POST multipart al backend (ej. /api/bloqueos/cargar)
- * usando apiClient, sin tocar el componente.
+ * Dos flujos distintos y separados en el backend (RedVialController.java):
+ * - subirArchivo: carga masiva desde un archivo mensual de bloqueos (aaaamm.bloqueadas).
+ * - registrarManual: alta de un único bloqueo desde el formulario.
  */
 export const bloqueosApi = {
-  async registrarArchivo(archivo: File): Promise<{ cantidad: number }> {
-    const texto = await archivo.text();
-    const cantidad = texto.split(/\r?\n/).filter((linea) => linea.trim() !== '').length;
-    return { cantidad };
+  async listar(): Promise<BloqueoVial[]> {
+    const response = await apiClient.get<BloqueoVial[]>('/api/redvial/bloqueos');
+    return response.data;
+  },
+
+  async subirArchivo(archivo: File): Promise<BloqueoVial[]> {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    const response = await apiClient.post<BloqueoVial[]>('/api/redvial/bloqueos/subir-archivo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  async registrarManual(datos: NuevoBloqueoDatos): Promise<BloqueoVial> {
+    const response = await apiClient.post<BloqueoVial>('/api/redvial/bloqueos', {
+      fechaHoraInicio: datos.inicio,
+      fechaHoraFin: datos.fin,
+      coordenadasNodos: datos.coordenadasNodos,
+    });
+    return response.data;
   },
 };

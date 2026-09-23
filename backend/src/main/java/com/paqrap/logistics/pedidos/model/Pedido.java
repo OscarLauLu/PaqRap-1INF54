@@ -72,7 +72,8 @@ public class Pedido {
     @JoinColumn(name = "cliente_id")
     private Cliente cliente;
 
-    private Long unidadAsignadaId;
+    // FK denormalizada a UnidadTransporte.codigo (String desde el remodelado a clave natural)
+    private String unidadAsignadaId;
     private Long rutaAsignadaId;
     private String codigoPadre;
 

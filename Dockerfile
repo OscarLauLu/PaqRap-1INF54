@@ -1,7 +1,7 @@
 # ==============================================================================
 # ETAPA 1: Compilación de la aplicación Java con Maven
 # ==============================================================================
-FROM maven:3.9.6-eclipse-temurin-17 AS builder
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
 WORKDIR /build
 
@@ -14,9 +14,9 @@ COPY backend/src ./src
 RUN mvn clean package -Dmaven.test.skip=true
 
 # ==============================================================================
-# ETAPA 2: Imagen final ligera de ejecución (Eclipse Temurin 17 JRE Alpine)
+# ETAPA 2: Imagen final ligera de ejecución (Eclipse Temurin 21 JRE Alpine)
 # ==============================================================================
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:21-jre
 
 LABEL maintainer="PaqRap Logistics <support@paqrap.com>"
 LABEL description="Sistema Logístico PaqRap - Benchmark y API de Algoritmos Metaheurísticos"

@@ -1,43 +1,62 @@
+import { apiClient } from './client';
 import type { NuevoPedidoDatos, PedidoRegistro } from '../types/registro';
+import { tipoEntregaEnum } from '../types/registro';
 
-const fecha = (dia: number, hora: number, min: number) =>
-  new Date(2026, 7, dia, hora, min).toISOString();
+// Forma real que devuelve el backend: PedidoDTO.java (pedidos/dto/PedidoDTO.java).
+interface PedidoDTOBackend {
+  id: number;
+  codigo: string;
+  clienteId: string;
+  nombreCliente: string;
+  destino: { posX: number; posY: number };
+  cantidadUnidades: number;
+  tipoEntrega: string; // p.ej. PRIORIZADA_8H, REGULAR_36H
+  estado: PedidoRegistro['estado'];
+  nivelCriticidad: string;
+  fechaHoraRegistro: string;
+  plazoLimiteEntrega: string;
+  fechaHoraEntrega: string | null;
+  holguraHoras: number;
+  unidadAsignadaId: string | null;
+  rutaAsignadaId: number | null;
+}
 
-// Datos de ejemplo tomados del diseño de la pantalla de Registro
-const MOCK: PedidoRegistro[] = [
-  { id: 'PED-1', idCliente: 'c9167', cliente: 'C-34', ubicacion: { posX: 45, posY: 43 }, cantidad: 12, fechaRegistro: fecha(11, 13, 31), plazoHoras: 36, tipoEntrega: 'Normal', estado: 'Por atender' },
-  { id: 'PED-2', idCliente: 'c8234', cliente: 'C-34', ubicacion: { posX: 32, posY: 18 }, cantidad: 2, fechaRegistro: fecha(11, 14, 10), plazoHoras: 8, tipoEntrega: 'Priorizada', estado: 'Planificado' },
-  { id: 'PED-3', idCliente: 'c1042', cliente: 'C-34', ubicacion: { posX: 32, posY: 18 }, cantidad: 6, fechaRegistro: fecha(11, 14, 10), plazoHoras: 36, tipoEntrega: 'Normal', estado: 'Por atender' },
-  { id: 'PED-4', idCliente: 'c3781', cliente: 'C-34', ubicacion: { posX: 32, posY: 18 }, cantidad: 3, fechaRegistro: fecha(11, 14, 25), plazoHoras: 8, tipoEntrega: 'Priorizada', estado: 'Por atender' },
-  { id: 'PED-5', idCliente: 'c6254', cliente: 'C-34', ubicacion: { posX: 32, posY: 18 }, cantidad: 10, fechaRegistro: fecha(11, 15, 5), plazoHoras: 12, tipoEntrega: 'Normal', estado: 'Por atender' },
-];
+const horasDesdeTipoEntrega = (tipoEntrega: string): number => {
+  const match = tipoEntrega.match(/(\d+)H$/);
+  return match ? Number(match[1]) : 36;
+};
 
-// Vive a nivel de módulo para que los pedidos no se pierdan al cambiar de pantalla.
-let memoria: PedidoRegistro[] = [...MOCK];
+const mapearPedido = (dto: PedidoDTOBackend): PedidoRegistro => ({
+  id: dto.id,
+  codigo: dto.codigo,
+  idCliente: dto.clienteId,
+  cliente: dto.nombreCliente,
+  ubicacion: dto.destino,
+  cantidad: dto.cantidadUnidades,
+  fechaRegistro: dto.fechaHoraRegistro,
+  plazoHoras: horasDesdeTipoEntrega(dto.tipoEntrega),
+  tipoEntregaEnum: dto.tipoEntrega,
+  estado: dto.estado,
+  plazoLimiteEntrega: dto.plazoLimiteEntrega,
+});
 
-/**
- * PASO 1: todo en memoria (datos falsos).
- * PASO 4: reemplazar el cuerpo de estas funciones por llamadas a apiClient
- * (GET y POST /api/pedidos) sin tocar los componentes.
- */
 export const pedidosApi = {
   async listar(): Promise<PedidoRegistro[]> {
-    return [...memoria];
+    const response = await apiClient.get<PedidoDTOBackend[]>('/api/pedidos');
+    return response.data.map(mapearPedido);
   },
 
   async registrar(datos: NuevoPedidoDatos): Promise<PedidoRegistro> {
-    const nuevo: PedidoRegistro = {
-      id: `PED-${Date.now()}`,
-      idCliente: `c${Math.floor(1000 + Math.random() * 9000)}`,
-      cliente: datos.cliente,
-      ubicacion: datos.ubicacion,
-      cantidad: datos.cantidad,
-      fechaRegistro: new Date().toISOString(),
-      plazoHoras: datos.plazoHoras,
-      tipoEntrega: datos.tipoEntrega,
-      estado: 'Por atender',
-    };
-    memoria = [nuevo, ...memoria];
-    return nuevo;
+    // El formulario pide un único campo "Cliente"; se usa como idCliente (clave natural) y como
+    // nombre para mostrar, ya que el diseño de Figma no distingue ambos campos.
+    const response = await apiClient.post<PedidoDTOBackend>('/api/pedidos', {
+      idCliente: datos.cliente.trim(),
+      nombreCliente: datos.cliente.trim(),
+      destinoX: datos.ubicacion.posX,
+      destinoY: datos.ubicacion.posY,
+      cantidadUnidades: datos.cantidad,
+      tipoEntrega: tipoEntregaEnum(datos.tipoEntrega, datos.plazoHoras),
+    });
+    return mapearPedido(response.data);
   },
 };

@@ -1,74 +1,42 @@
-import React, { useRef, useState } from 'react';
-import { FileText, Upload } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileText, Info } from 'lucide-react';
 import { averiasApi } from '../../api/averiasApi';
-import type { EstadoAveria, TipoAveria } from '../../types/registro';
+import type { TipoAveria } from '../../types/registro';
 import { inputBase } from './estilos';
 import { Aviso, Campo, Selector } from './ui';
-import {
-  ahoraHHmm,
-  combinarFechaHora,
-  formatFechaHora,
-  hoyISO,
-  parseUbicacion,
-  sumarHoras,
-} from './utils';
+import { formatFechaHora, parseUbicacion } from './utils';
 
 const TIPOS = [
-  { valor: 'TIPO_1', etiqueta: 'Tipo 1' },
-  { valor: 'TIPO_2', etiqueta: 'Tipo 2' },
-  { valor: 'TIPO_3', etiqueta: 'Tipo 3' },
+  { valor: 'TIPO_1', etiqueta: 'Tipo 1 — 2 h en el lugar' },
+  { valor: 'TIPO_2', etiqueta: 'Tipo 2 — hasta el próximo cambio de turno' },
+  { valor: 'TIPO_3', etiqueta: 'Tipo 3 — ≥ 2 días' },
 ];
 
-const ESTADOS = [
-  { valor: 'En reparación', etiqueta: 'En reparación' },
-  { valor: 'Resuelta', etiqueta: 'Resuelta' },
-];
-
-// TODO: confirmar con el grupo cuánto dura la indisponibilidad según el tipo de avería
-const HORAS_SUGERIDAS = 2;
+// Explicación client-side de la regla real (Averia.calcularReincorporacion, RF-14). El backend
+// calcula la fecha exacta; esto solo informa al usuario antes de registrar.
+const EXPLICACION_TIPO: Record<TipoAveria, string> = {
+  TIPO_1: 'Permanece en el lugar 2 horas y vuelve a operar donde quedó.',
+  TIPO_2: 'Permanece hasta el fin del siguiente turno (07:00, 15:00 o 23:00), máx. 4 h en el lugar, y se traslada de inmediato al almacén central.',
+  TIPO_3: 'Permanece 4 h en el lugar, se traslada de inmediato al almacén central y reingresa a operar al menos 2 días después, en el turno 15:00–23:00.',
+};
 
 interface Errores {
   idUnidad?: string;
   ubicacion?: string;
-  fecha?: string;
-  hora?: string;
-  fin?: string;
 }
 
 export const PestanaAverias: React.FC = () => {
   const [idUnidad, setIdUnidad] = useState('');
   const [ubicacion, setUbicacion] = useState('');
-  const [fecha, setFecha] = useState(() => hoyISO());
-  const [hora, setHora] = useState(() => ahoraHHmm());
   const [tipo, setTipo] = useState<TipoAveria>('TIPO_1');
-  const [fin, setFin] = useState(() => sumarHoras(hora, HORAS_SUGERIDAS));
-  const [finEditado, setFinEditado] = useState(false);
-  const [estado, setEstado] = useState<EstadoAveria>('En reparación');
   const [errores, setErrores] = useState<Errores>({});
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const inputArchivo = useRef<HTMLInputElement>(null);
-
-  // Mientras el usuario no edite el fin, se sugiere hora de avería + 2 h
-  const cambiarHora = (nueva: string) => {
-    setHora(nueva);
-    if (!finEditado && nueva) setFin(sumarHoras(nueva, HORAS_SUGERIDAS));
-  };
-
-  const cambiarFin = (nuevo: string) => {
-    setFin(nuevo);
-    setFinEditado(true);
-  };
+  const [registrando, setRegistrando] = useState(false);
 
   const limpiar = () => {
-    const h = ahoraHHmm();
     setIdUnidad('');
     setUbicacion('');
-    setFecha(hoyISO());
-    setHora(h);
     setTipo('TIPO_1');
-    setFin(sumarHoras(h, HORAS_SUGERIDAS));
-    setFinEditado(false);
-    setEstado('En reparación');
     setErrores({});
   };
 
@@ -77,64 +45,48 @@ export const PestanaAverias: React.FC = () => {
 
     const ubic = parseUbicacion(ubicacion);
     const nuevos: Errores = {};
-    if (!idUnidad.trim()) nuevos.idUnidad = 'Ingresa el ID de la unidad';
+    if (!idUnidad.trim()) nuevos.idUnidad = 'Ingresa el código de la unidad';
     if (!ubic) nuevos.ubicacion = 'Usa el formato (x,y). Ej: (32,18)';
-    if (!fecha) nuevos.fecha = 'Elige la fecha';
-    if (!hora) nuevos.hora = 'Elige la hora';
-    if (!fin) nuevos.fin = 'Elige la hora de fin';
 
     setErrores(nuevos);
     if (!ubic || Object.keys(nuevos).length > 0) return;
 
-    const inicio = combinarFechaHora(fecha, hora);
-    let finFecha = combinarFechaHora(fecha, fin);
-    // Si el fin es menor o igual a la hora de avería, termina al día siguiente
-    if (finFecha <= inicio) finFecha = new Date(finFecha.getTime() + 24 * 3600000);
+    setRegistrando(true);
+    try {
+      const registrada = await averiasApi.registrar({
+        idUnidad: idUnidad.trim().toUpperCase(),
+        ubicacion: ubic,
+        tipo,
+      });
 
-    const registrada = await averiasApi.registrar({
-      idUnidad: idUnidad.trim().toUpperCase(),
-      ubicacion: ubic,
-      tipo,
-      inicio: inicio.toISOString(),
-      fin: finFecha.toISOString(),
-      estado,
-    });
-
-    setMensaje(
-      `Avería registrada para ${registrada.idUnidad}. No disponible hasta ${formatFechaHora(registrada.fin)}. Modo demostración: aún no se guarda en el servidor.`,
-    );
-    limpiar();
-  };
-
-  const handleArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const archivo = e.target.files?.[0];
-    if (archivo) {
-      // TODO: leer el archivo y registrar las averías
-      setMensaje(`Archivo "${archivo.name}" seleccionado. La importación se conecta más adelante.`);
+      setMensaje(
+        registrada.horaReincorporacion
+          ? `Avería ${registrada.codigo} registrada para ${registrada.idUnidad}. Reincorporación estimada: ${formatFechaHora(registrada.horaReincorporacion)}.`
+          : `Avería ${registrada.codigo} registrada para ${registrada.idUnidad}.`,
+      );
+      limpiar();
+    } catch {
+      setMensaje('No se pudo registrar la avería. Verifica que el código de unidad exista.');
+    } finally {
+      setRegistrando(false);
     }
-    e.target.value = '';
   };
 
   return (
     <>
-      <form
-        id="form-nueva-averia"
-        onSubmit={handleSubmit}
-        noValidate
-        className="bg-white rounded-xl border border-gray-200 shadow-sm p-6"
-      >
-        <h2 className="flex items-center gap-2 text-lg font-bold text-gray-800 mb-4">
-          <FileText className="w-5 h-5 text-blue-600" />
+      <form onSubmit={handleSubmit} noValidate className="bg-white rounded-xl border border-(--color-line-200) shadow-sm p-6">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900) mb-4">
+          <FileText className="w-5 h-5 text-(--color-brand-500)" />
           Nueva avería
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4">
           <Campo etiqueta="ID Unidad" error={errores.idUnidad}>
             <input
               type="text"
               value={idUnidad}
               onChange={(e) => setIdUnidad(e.target.value)}
-              placeholder="AUTO-03"
+              placeholder="A1"
               className={inputBase}
             />
           </Campo>
@@ -149,46 +101,29 @@ export const PestanaAverias: React.FC = () => {
             />
           </Campo>
 
-          <Campo etiqueta="Fecha de avería" error={errores.fecha}>
-            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputBase} />
-          </Campo>
-
-          <Campo etiqueta="Hora de avería" error={errores.hora}>
-            <input type="time" value={hora} onChange={(e) => cambiarHora(e.target.value)} className={inputBase} />
-          </Campo>
-
           <Campo etiqueta="Tipo de avería">
             <Selector value={tipo} onChange={(v) => setTipo(v as TipoAveria)} opciones={TIPOS} />
           </Campo>
+        </div>
 
-          <Campo etiqueta="Fin de indisponibilidad" error={errores.fin}>
-            <input type="time" value={fin} onChange={(e) => cambiarFin(e.target.value)} className={inputBase} />
-          </Campo>
+        <div className="mt-4 flex items-start gap-2 rounded-lg bg-(--color-brand-50) px-4 py-3 text-xs text-(--color-ink-500)">
+          <Info className="w-4 h-4 text-(--color-brand-500) shrink-0 mt-0.5" />
+          <p>
+            <strong className="text-(--color-ink-700)">Fecha/hora del evento, reincorporación y estado los calcula el sistema</strong> a
+            partir del tipo elegido (RF-14) — no se ingresan a mano. {EXPLICACION_TIPO[tipo]}
+          </p>
+        </div>
 
-          <Campo etiqueta="Estado">
-            <Selector value={estado} onChange={(v) => setEstado(v as EstadoAveria)} opciones={ESTADOS} />
-          </Campo>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="submit"
+            disabled={registrando}
+            className="rounded-xl bg-(--color-brand-500) hover:bg-(--color-brand-600) active:bg-(--color-brand-700) disabled:opacity-50 text-white font-semibold px-6 py-2.5 text-sm transition-colors"
+          >
+            {registrando ? 'Registrando...' : 'Registrar avería'}
+          </button>
         </div>
       </form>
-
-      <div className="flex justify-end items-center gap-3">
-        <input ref={inputArchivo} type="file" accept=".txt,.csv" onChange={handleArchivo} className="hidden" />
-        <button
-          type="button"
-          onClick={() => inputArchivo.current?.click()}
-          className="flex items-center gap-2 rounded-xl bg-gray-500 hover:bg-gray-600 text-white font-semibold px-5 py-2.5 text-sm transition-colors"
-        >
-          <Upload className="w-4 h-4" />
-          Cargar archivo
-        </button>
-        <button
-          type="submit"
-          form="form-nueva-averia"
-          className="rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold px-6 py-2.5 text-sm transition-colors"
-        >
-          Registrar avería
-        </button>
-      </div>
 
       {mensaje && <Aviso mensaje={mensaje} onCerrar={() => setMensaje(null)} />}
     </>

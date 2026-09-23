@@ -44,7 +44,7 @@ class AlgoritmosTest {
         redVial.inicializarRed();
 
         TipoVehiculo tipoAuto = TipoVehiculo.builder()
-                .id(1L)
+                .codigo("TA")
                 .nombre("Auto")
                 .capacidadMaxima(24)
                 .velocidadPromedioKmH(20.0)
@@ -53,21 +53,19 @@ class AlgoritmosTest {
 
         flota = new ArrayList<>();
         flota.add(UnidadTransporte.builder()
-                .id(1L)
                 .codigo("TA01")
                 .tipo(tipoAuto)
                 .estadoOperativo(EstadoOperativo.DISPONIBLE)
                 .ubicacionActual(new Ubicacion(27, 14))
-                .activo(true)
+                .dadaDeBaja(false)
                 .build());
 
         flota.add(UnidadTransporte.builder()
-                .id(2L)
                 .codigo("TA02")
                 .tipo(tipoAuto)
                 .estadoOperativo(EstadoOperativo.DISPONIBLE)
                 .ubicacionActual(new Ubicacion(27, 14))
-                .activo(true)
+                .dadaDeBaja(false)
                 .build());
 
         LocalDateTime ahora = LocalDateTime.now();

@@ -12,5 +12,6 @@ import java.util.Optional;
 public interface RutaRepository extends JpaRepository<Ruta, Long> {
     Optional<Ruta> findByCodigo(String codigo);
     List<Ruta> findByEstado(EstadoRuta estado);
-    List<Ruta> findByUnidadTransporteId(Long unidadId);
+    // Antes findByUnidadTransporteId(Long): UnidadTransporte usa ahora "codigo" (String) como PK.
+    List<Ruta> findByUnidadTransporteCodigo(String unidadCodigo);
 }

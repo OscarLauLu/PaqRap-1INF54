@@ -33,15 +33,15 @@ public class AlmacenController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Consultar detalle de un almacén por ID")
-    public ResponseEntity<AlmacenDTO> obtenerAlmacen(@PathVariable Long id) {
+    @Operation(summary = "Consultar detalle de un almacén por código")
+    public ResponseEntity<AlmacenDTO> obtenerAlmacen(@PathVariable String id) {
         return ResponseEntity.ok(almacenService.obtenerAlmacen(id));
     }
 
     @GetMapping("/{id}/historial")
     @Operation(summary = "Consultar historial de movimientos (últimos 5 días simulados por defecto, RF-23)")
     public ResponseEntity<List<MovimientoInventarioDTO>> obtenerHistorial(
-            @PathVariable Long id,
+            @PathVariable String id,
             @RequestParam(defaultValue = "5") int dias) {
         return ResponseEntity.ok(almacenService.obtenerHistorial(id, dias));
     }
@@ -49,7 +49,7 @@ public class AlmacenController {
     @PostMapping("/{id}/carga")
     @Operation(summary = "Carga manual de inventario validando no superar 1,000 unidades (RF-19)")
     public ResponseEntity<MovimientoInventarioDTO> cargarInventario(
-            @PathVariable Long id,
+            @PathVariable String id,
             @RequestParam int cantidad) {
         return ResponseEntity.ok(almacenService.cargarInventario(id, cantidad));
     }

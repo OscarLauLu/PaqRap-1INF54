@@ -1,11 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/* Tokens de diseño PaqRap (alineados al Figma del equipo: grayscale + accent + semáforo). */
+@theme {
+  --font-sans: 'Mulish', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-brand-50: #eff4fd;
+  --color-brand-100: #dde2ff;
+  --color-brand-500: #3751ff;
+  --color-brand-600: #2d42e0;
+  --color-brand-700: #2434b8;
+
+  --color-ink-900: #252733;
+  --color-ink-700: #616369;
+  --color-ink-500: #696a6f;
+  --color-ink-400: #9fa2b4;
+  --color-ink-300: #c5c7cd;
+  --color-line-200: #dfe0eb;
+  --color-surface-50: #f7f8fc;
+
+  --color-semaforo-verde: #34c759;
+  --color-semaforo-ambar: #ffcc00;
+  --color-semaforo-rojo: #ff383c;
+}
+
 body {
-  background-color: #f8fafc;
-  color: #1e293b;
+  background-color: #f7f8fc;
+  color: #252733;
   margin: 0;
   padding: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 

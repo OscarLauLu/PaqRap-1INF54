@@ -7,7 +7,6 @@ import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.AveriaRepository;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
-import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.Pedido;
 import com.paqrap.logistics.pedidos.repository.PedidoRepository;
 import com.paqrap.logistics.planificacion.model.Planificador;
@@ -68,15 +67,38 @@ public class MotorSimulacion {
     private List<Averia> averiasProgramadas = new ArrayList<>();
 
     // Métricas acumuladas en tiempo real
+    @Getter
     private int totalPedidosIngresados = 0;
+    @Getter
     private int pedidosEnPlazo = 0;
+    @Getter
     private int pedidosTarde = 0;
     private double costoAuto = 0.0;
     private double costoMoto = 0.0;
     private double costoBici = 0.0;
+    @Getter
     private int entregasAuto = 0;
+    @Getter
     private int entregasMoto = 0;
+    @Getter
     private int entregasBici = 0;
+    @Getter
+    private int bloqueosOcurridos = 0;
+    @Getter
+    private int averiasOcurridas = 0;
+
+    public double getCostoAuto() { return costoAuto; }
+    public double getCostoMoto() { return costoMoto; }
+    public double getCostoBici() { return costoBici; }
+    public double getCostoAcumuladoTotal() { return costoAuto + costoMoto + costoBici; }
+
+    @Getter
+    private TipoEscenario escenarioActual;
+
+    @Getter
+    private LocalDateTime instanteColapsoDetectado;
+    @Getter
+    private Integer volumenPedidosColapsoDetectado;
 
     private LocalDateTime instanteInicioEjecucionReal;
 
@@ -117,6 +139,7 @@ public class MotorSimulacion {
 
         this.estado = EstadoEjecucion.EN_EJECUCION;
         this.instanteInicioEjecucionReal = LocalDateTime.now();
+        this.escenarioActual = escenario;
 
         // Reset metrics for new run
         this.totalPedidosIngresados = 0;
@@ -128,6 +151,10 @@ public class MotorSimulacion {
         this.entregasAuto = 0;
         this.entregasMoto = 0;
         this.entregasBici = 0;
+        this.bloqueosOcurridos = 0;
+        this.averiasOcurridas = 0;
+        this.instanteColapsoDetectado = null;
+        this.volumenPedidosColapsoDetectado = null;
         LocalDateTime inicioSim = LocalDateTime.of(2026, 9, 1, 0, 0, 0);
         double factorAceleracion;
         switch (escenario) {
@@ -202,9 +229,12 @@ public class MotorSimulacion {
                 log.error("Error en recarga diaria: {}", e.getMessage());
             }
 
-            // Verificar condición de colapso si aplica (RF-73)
+            // Verificar condición de colapso si aplica (RF-73): colapsa apenas UN pedido incumple su plazo
             if (escenario == TipoEscenario.COLAPSO_LOGISTICO && detectarColapso()) {
-                log.warn("¡COLAPSO LOGÍSTICO DETECTADO en el instante {}!", instanteActual);
+                this.instanteColapsoDetectado = instanteActual;
+                this.volumenPedidosColapsoDetectado = contarPedidosActivos();
+                log.warn("¡COLAPSO LOGÍSTICO DETECTADO en el instante {}! Pedidos activos al momento del colapso: {}",
+                        instanteActual, volumenPedidosColapsoDetectado);
                 detener();
                 this.estado = EstadoEjecucion.DETENIDA_POR_COLAPSO;
             }
@@ -254,6 +284,7 @@ public class MotorSimulacion {
             if (b.estaVigente(instante) && !b.isActivo()) {
                 b.activar();
                 bloqueoRepository.save(b);
+                bloqueosOcurridos++;
                 planificador.replanificarPorBloqueo(b);
             } else if (!b.estaVigente(instante) && b.isActivo()) {
                 b.desactivar();
@@ -265,9 +296,20 @@ public class MotorSimulacion {
         for (Averia a : averiasProgramadas) {
             if (a.getFechaHoraEvento() != null && !a.getFechaHoraEvento().isAfter(instante) && !a.isResuelta()) {
                 averiaRepository.save(a);
+                averiasOcurridas++;
                 planificador.replanificarPorAveria(a);
             }
         }
+    }
+
+    /**
+     * Cuenta los pedidos que el sistema tenía activos (no entregados, no cancelados) en el instante actual.
+     * Usado como métrica de carga soportada justo antes de un colapso (RF-73).
+     */
+    private int contarPedidosActivos() {
+        return (int) pedidoRepository.findAll().stream()
+                .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
+                .count();
     }
 
     private void ejecutarMovimientosFlota(LocalDateTime instante) {
@@ -360,15 +402,15 @@ public class MotorSimulacion {
     }
 
     /**
-     * Detecta automáticamente si la flota colapsó (plazos incumplidos > umbral) en el escenario de colapso (RF-73).
+     * Detecta si el sistema colapsó en el escenario de colapso logístico (RF-73).
+     * Regla de negocio exacta (no admite umbral ni porcentaje): el sistema colapsa en el instante
+     * en que UN SOLO pedido activo (no ENTREGADO) incumple su plazo límite de entrega.
      */
     public boolean detectarColapso() {
         LocalDateTime ahora = reloj.getInstanteActual();
-        List<Pedido> pendientes = pedidoRepository.findByEstado(EstadoPedido.REGISTRADO);
-        long vencidos = pendientes.stream().filter(p -> p.getPlazoLimiteEntrega().isBefore(ahora)).count();
-
-        // Criterio de colapso: si hay más de 10 pedidos vencidos sin atender
-        return vencidos >= 10;
+        return pedidoRepository.findAll().stream()
+                .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
+                .anyMatch(p -> p.getPlazoLimiteEntrega() != null && p.getPlazoLimiteEntrega().isBefore(ahora));
     }
 
     /**
@@ -380,7 +422,7 @@ public class MotorSimulacion {
         }
         if (estado == EstadoEjecucion.EN_EJECUCION) {
             estado = EstadoEjecucion.FINALIZADA;
-            construirResultado(TipoEscenario.valueOf(parametros != null ? "DIA_A_DIA" : "SIMULACION_5D")); // Guarda el resultado real al terminar
+            construirResultado(escenarioActual != null ? escenarioActual : TipoEscenario.DIA_A_DIA);
         }
         log.info("Motor de simulación detenido.");
     }
@@ -432,6 +474,10 @@ public class MotorSimulacion {
                 .entregasAuto(entregasAuto)
                 .entregasMoto(entregasMoto)
                 .entregasBicicleta(entregasBici)
+                .totalBloqueosOcurridos(bloqueosOcurridos)
+                .totalAveriasOcurridas(averiasOcurridas)
+                .instanteColapso(instanteColapsoDetectado)
+                .volumenPedidosColapso(volumenPedidosColapsoDetectado)
                 .build();
         res.guardar();
         resultadoRepository.save(res);
