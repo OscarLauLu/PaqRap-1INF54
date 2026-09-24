@@ -4,13 +4,13 @@
 
 -- 1. TIPOS DE VEHÍCULO (RF-39, RF-40, RF-41, RF-46)
 INSERT INTO tipos_vehiculo (id, nombre, capacidad_maxima, velocidad_promedio_km_h, costo_por_km)
-VALUES (1, 'Auto', 24, 20.0, 8.00);
+VALUES (1, 'Auto', 24, 40.0, 8.00);
 
 INSERT INTO tipos_vehiculo (id, nombre, capacidad_maxima, velocidad_promedio_km_h, costo_por_km)
-VALUES (2, 'Moto', 8, 40.0, 6.00);
+VALUES (2, 'Moto', 8, 25.0, 6.00);
 
 INSERT INTO tipos_vehiculo (id, nombre, capacidad_maxima, velocidad_promedio_km_h, costo_por_km)
-VALUES (3, 'Bicicleta', 4, 14.0, 3.00);
+VALUES (3, 'Bicicleta', 4, 12.0, 3.00);
 
 -- 2. ALMACENES (RF-17, RF-18, RF-19, RF-20)
 -- Almacén Central en (27, 14) según especificación oficial del 08-sept-2026
