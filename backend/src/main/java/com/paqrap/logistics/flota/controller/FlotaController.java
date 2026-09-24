@@ -52,14 +52,14 @@ public class FlotaController {
 
     @GetMapping("/unidades/{id}")
     @Operation(summary = "Consultar carga actual y porcentaje de capacidad de una unidad (RF-49)")
-    public ResponseEntity<UnidadTransporteDTO> obtenerUnidad(@PathVariable Long id) {
+    public ResponseEntity<UnidadTransporteDTO> obtenerUnidad(@PathVariable String id) {
         return ResponseEntity.ok(flotaService.obtenerUnidad(id));
     }
 
     @PutMapping("/unidades/{id}/estado")
     @Operation(summary = "Actualizar estado operativo de una unidad (RF-42)")
     public ResponseEntity<UnidadTransporteDTO> cambiarEstado(
-            @PathVariable Long id,
+            @PathVariable String id,
             @RequestParam EstadoOperativo nuevoEstado) {
         return ResponseEntity.ok(flotaService.cambiarEstadoOperativo(id, nuevoEstado));
     }
@@ -67,7 +67,7 @@ public class FlotaController {
     @PostMapping("/unidades/{id}/averia")
     @Operation(summary = "Registrar evento de avería de unidad y calcular reincorporación (RF-14, RF-45)")
     public ResponseEntity<Averia> registrarAveria(
-            @PathVariable Long id,
+            @PathVariable String id,
             @Valid @RequestBody RegistrarAveriaDTO dto) {
         return ResponseEntity.ok(flotaService.registrarAveria(id, dto));
     }
@@ -81,18 +81,20 @@ public class FlotaController {
     }
 
     @PostMapping("/unidades/{id}/conductor/{conductorId}")
-    @Operation(summary = "Asignar conductor validando turno y descanso para alimentación de 60 min (RF-43, RF-44)")
+    @Operation(summary = "Asignar conductor validando turno y descanso para alimentación de 60 min (RF-43, RF-44)",
+            description = "turnoId es obligatorio desde el remodelado a clave natural: el turno ya no es fijo por conductor (catálogo sembrado en data.sql: 1=Mañana, 2=Tarde, 3=Noche)")
     public ResponseEntity<AsignacionTurno> asignarConductor(
-            @PathVariable Long id,
-            @PathVariable Long conductorId,
+            @PathVariable String id,
+            @PathVariable String conductorId,
+            @RequestParam Integer turnoId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime inicioAlimentacion) {
-        return ResponseEntity.ok(flotaService.asignarConductor(id, conductorId, fecha, inicioAlimentacion));
+        return ResponseEntity.ok(flotaService.asignarConductor(id, conductorId, turnoId, fecha, inicioAlimentacion));
     }
 
     @DeleteMapping("/unidades/{id}")
     @Operation(summary = "Dar de baja o retirar unidad de la flota activa (RF-47)")
-    public ResponseEntity<Void> darDeBaja(@PathVariable Long id) {
+    public ResponseEntity<Void> darDeBaja(@PathVariable String id) {
         flotaService.darDeBajaUnidad(id);
         return ResponseEntity.noContent().build();
     }

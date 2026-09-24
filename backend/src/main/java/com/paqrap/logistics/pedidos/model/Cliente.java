@@ -1,11 +1,11 @@
 package com.paqrap.logistics.pedidos.model;
 
 import com.paqrap.logistics.redvial.model.Ubicacion;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
@@ -22,25 +22,28 @@ import java.util.stream.Collectors;
 
 /**
  * Representa a un cliente del sistema logístico (RF-26).
+ * Clave natural (idCliente) según docs/62.dis.base.datos.postgresql.v01.md: ya no existe un
+ * "id" numérico paralelo, idCliente ES la clave primaria.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "clientes")
+@Table(name = "cliente")
 public class Cliente {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
     @Column(name = "id_cliente")
     private String idCliente;
 
     private String nombre;
 
     @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "posX", column = @Column(name = "ubicacion_entrega_x")),
+            @AttributeOverride(name = "posY", column = @Column(name = "ubicacion_entrega_y"))
+    })
     private Ubicacion ubicacionEntrega;
 
     @OneToMany(mappedBy = "cliente")

@@ -10,6 +10,8 @@ import java.util.List;
 @Repository
 public interface AsignacionTurnoRepository extends JpaRepository<AsignacionTurno, Long> {
     List<AsignacionTurno> findByFecha(LocalDate fecha);
-    List<AsignacionTurno> findByUnidadId(Long unidadId);
-    List<AsignacionTurno> findByConductorId(Long conductorId);
+    // Antes findByUnidadId(Long)/findByConductorId(Long): UnidadTransporte y Conductor usan
+    // ahora "codigo" (String) como PK.
+    List<AsignacionTurno> findByUnidadCodigo(String unidadCodigo);
+    List<AsignacionTurno> findByConductorCodigo(String conductorCodigo);
 }

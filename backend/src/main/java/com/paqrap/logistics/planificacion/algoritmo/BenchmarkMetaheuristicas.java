@@ -316,9 +316,9 @@ public class BenchmarkMetaheuristicas {
 
     public static List<UnidadTransporte> crearFlotaDinamica(String rutaMantenimiento, Integer nAutos, Integer nMotos, Integer nBicis) {
         List<UnidadTransporte> flota = new ArrayList<>();
-        TipoVehiculo auto = TipoVehiculo.builder().id(1L).nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
-        TipoVehiculo moto = TipoVehiculo.builder().id(2L).nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
-        TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
+        TipoVehiculo auto = TipoVehiculo.builder().codigo("TA").nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
+        TipoVehiculo moto = TipoVehiculo.builder().codigo("TM").nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
+        TipoVehiculo bici = TipoVehiculo.builder().codigo("TB").nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
 
         Set<String> codigosEncontrados = new TreeSet<>();
         if (rutaMantenimiento != null && new File(rutaMantenimiento).exists()) {
@@ -340,22 +340,20 @@ public class BenchmarkMetaheuristicas {
             int cAutos = nAutos != null ? nAutos : 4;
             int cMotos = nMotos != null ? nMotos : 3;
             int cBicis = nBicis != null ? nBicis : 3;
-            long id = 1;
             for (int i = 1; i <= cAutos; i++) {
-                flota.add(UnidadTransporte.builder().id(id++).codigo(String.format("TA%02d", i)).tipo(auto).estadoOperativo(EstadoOperativo.DISPONIBLE).ubicacionActual(new Ubicacion(27, 14)).activo(true).build());
+                flota.add(UnidadTransporte.builder().codigo(String.format("TA%02d", i)).tipo(auto).estadoOperativo(EstadoOperativo.DISPONIBLE).ubicacionActual(new Ubicacion(27, 14)).dadaDeBaja(false).build());
             }
             for (int i = 1; i <= cMotos; i++) {
-                flota.add(UnidadTransporte.builder().id(id++).codigo(String.format("TM%02d", i)).tipo(moto).estadoOperativo(EstadoOperativo.DISPONIBLE).ubicacionActual(new Ubicacion(27, 14)).activo(true).build());
+                flota.add(UnidadTransporte.builder().codigo(String.format("TM%02d", i)).tipo(moto).estadoOperativo(EstadoOperativo.DISPONIBLE).ubicacionActual(new Ubicacion(27, 14)).dadaDeBaja(false).build());
             }
             for (int i = 1; i <= cBicis; i++) {
-                flota.add(UnidadTransporte.builder().id(id++).codigo(String.format("TB%02d", i)).tipo(bici).estadoOperativo(EstadoOperativo.DISPONIBLE).ubicacionActual(new Ubicacion(27, 14)).activo(true).build());
+                flota.add(UnidadTransporte.builder().codigo(String.format("TB%02d", i)).tipo(bici).estadoOperativo(EstadoOperativo.DISPONIBLE).ubicacionActual(new Ubicacion(27, 14)).dadaDeBaja(false).build());
             }
             return flota;
         }
 
         // Si se encontraron vehículos en el archivo de mantenimiento, se construye la flota oficial dinámicamente
         if (!codigosEncontrados.isEmpty()) {
-            long id = 1;
             for (String codigo : codigosEncontrados) {
                 TipoVehiculo tipo;
                 if (codigo.startsWith("TA")) tipo = auto;
@@ -363,12 +361,11 @@ public class BenchmarkMetaheuristicas {
                 else tipo = bici;
 
                 flota.add(UnidadTransporte.builder()
-                        .id(id++)
                         .codigo(codigo)
                         .tipo(tipo)
                         .estadoOperativo(EstadoOperativo.DISPONIBLE)
                         .ubicacionActual(new Ubicacion(27, 14))
-                        .activo(true)
+                        .dadaDeBaja(false)
                         .build());
             }
             return flota;

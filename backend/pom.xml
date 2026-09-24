@@ -14,7 +14,7 @@
     <name>logistics-backend</name>
     <description>Logistics Management Backend System</description>
     <properties>
-        <java.version>17</java.version>
+        <java.version>21</java.version>
     </properties>
     <dependencies>
         <dependency>
@@ -45,6 +45,16 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+
+        <!-- Flyway: aplica el DDL versionado de docs/62.dis.base.datos.postgresql.v01.md
+             (src/main/resources/db/migration/V*.sql) contra Postgres al arrancar.
+             Solo corre en el perfil "prod" (ver application.yml: spring.flyway.enabled) —
+             el perfil "default" sigue usando H2 con ddl-auto: create-drop tal cual estaba. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

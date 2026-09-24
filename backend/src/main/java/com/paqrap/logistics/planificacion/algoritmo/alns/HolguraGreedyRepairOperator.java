@@ -132,7 +132,7 @@ public class HolguraGreedyRepairOperator extends RepairOperator {
             boolean yaTieneRuta = solucion.getRutas().stream()
                     .anyMatch(r -> r.getUnidadTransporte() != null &&
                             (java.util.Objects.equals(r.getUnidadTransporte().getCodigo(), u.getCodigo()) ||
-                             (r.getUnidadTransporte().getId() != null && r.getUnidadTransporte().getId().equals(u.getId()))));
+                             (r.getUnidadTransporte().getCodigo() != null && r.getUnidadTransporte().getCodigo().equals(u.getCodigo()))));
 
             if (!yaTieneRuta) {
                 int cap = (u.getTipo() != null) ? u.getTipo().getCapacidadMaxima() : 24;

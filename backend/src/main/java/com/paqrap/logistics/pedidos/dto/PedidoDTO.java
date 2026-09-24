@@ -33,6 +33,6 @@ public class PedidoDTO {
     private LocalDateTime plazoLimiteEntrega;
     private LocalDateTime fechaHoraEntrega;
     private double holguraHoras;
-    private Long unidadAsignadaId;
+    private String unidadAsignadaId;
     private Long rutaAsignadaId;
 }

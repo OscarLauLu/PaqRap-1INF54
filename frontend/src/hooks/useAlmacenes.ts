@@ -27,8 +27,8 @@ export function useAlmacenes(pollIntervalMs: number = 5000) {
     }
   }, [fetchAlmacenes, pollIntervalMs]);
 
-  const cargarInventario = async (id: number, cantidad: number) => {
-    await almacenesApi.cargarInventario(id, cantidad);
+  const cargarInventario = async (codigo: string, cantidad: number) => {
+    await almacenesApi.cargarInventario(codigo, cantidad);
     await fetchAlmacenes();
   };
 

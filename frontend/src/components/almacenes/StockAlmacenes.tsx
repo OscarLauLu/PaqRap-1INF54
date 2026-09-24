@@ -19,7 +19,7 @@ export const StockAlmacenes: React.FC<StockAlmacenesProps> = ({ almacenes, loadi
 
           return (
             <div
-              key={almacen.id}
+              key={almacen.codigo}
               className="bg-white rounded-xl border border-blue-300 p-4 shadow-xs hover:border-blue-500 transition-all flex flex-col justify-between min-h-[90px]"
             >
               <div className="flex items-start justify-between">
