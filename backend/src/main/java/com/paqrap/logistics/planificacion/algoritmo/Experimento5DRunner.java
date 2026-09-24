@@ -278,8 +278,8 @@ public class Experimento5DRunner {
         TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(14.0).costoPorKm(3.0).build();
 
         long id = 1;
-        // 4 Autos
-        for (int i = 1; i <= 4; i++) {
+        // 10 Autos
+        for (int i = 1; i <= 10; i++) {
             String codigo = String.format("TA%02d", i);
             boolean averiado = conAverias && "TA02".equals(codigo);
             flota.add(UnidadTransporte.builder()
@@ -292,8 +292,8 @@ public class Experimento5DRunner {
                     .build());
         }
 
-        // 3 Motos
-        for (int i = 1; i <= 3; i++) {
+        // 15 Motos
+        for (int i = 1; i <= 15; i++) {
             String codigo = String.format("TM%02d", i);
             boolean averiada = conAverias && "TM01".equals(codigo);
             flota.add(UnidadTransporte.builder()
@@ -306,8 +306,8 @@ public class Experimento5DRunner {
                     .build());
         }
 
-        // 3 Bicis
-        for (int i = 1; i <= 3; i++) {
+        // 12 Bicis
+        for (int i = 1; i <= 12; i++) {
             String codigo = String.format("TB%02d", i);
             flota.add(UnidadTransporte.builder()
                     .id(id++)

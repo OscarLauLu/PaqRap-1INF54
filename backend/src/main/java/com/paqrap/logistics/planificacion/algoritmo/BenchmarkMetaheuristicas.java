@@ -311,14 +311,14 @@ public class BenchmarkMetaheuristicas {
     }
 
     public static List<UnidadTransporte> crearFlotaEstandar() {
-        return crearFlotaDinamica(null, 4, 3, 3);
+        return crearFlotaDinamica(null, 10, 15, 12);
     }
 
     public static List<UnidadTransporte> crearFlotaDinamica(String rutaMantenimiento, Integer nAutos, Integer nMotos, Integer nBicis) {
         List<UnidadTransporte> flota = new ArrayList<>();
-        TipoVehiculo auto = TipoVehiculo.builder().id(1L).nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
-        TipoVehiculo moto = TipoVehiculo.builder().id(2L).nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
-        TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
+        TipoVehiculo auto = TipoVehiculo.builder().id(1L).nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(20.0).costoPorKm(8.0).build();
+        TipoVehiculo moto = TipoVehiculo.builder().id(2L).nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(40.0).costoPorKm(6.0).build();
+        TipoVehiculo bici = TipoVehiculo.builder().id(3L).nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(14.0).costoPorKm(3.0).build();
 
         Set<String> codigosEncontrados = new TreeSet<>();
         if (rutaMantenimiento != null && new File(rutaMantenimiento).exists()) {
@@ -374,8 +374,8 @@ public class BenchmarkMetaheuristicas {
             return flota;
         }
 
-        // Fallback por defecto: 4 Autos, 3 Motos, 3 Bicis
-        return crearFlotaDinamica(null, 4, 3, 3);
+        // Fallback por defecto: 10 Autos, 15 Motos, 12 Bicis
+        return crearFlotaDinamica(null, 10, 15, 12);
     }
 
     private static void imprimirResultados(int totalPedidos,
