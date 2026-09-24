@@ -48,8 +48,7 @@ public class Experimento5DRunner {
     }
 
     public enum NivelDisrupcion {
-        BAJO("bajo", false),
-        ALTO("alto", true);
+        BAJO("bajo", false);
 
         public final String etiqueta;
         public final boolean conAverias;
@@ -113,9 +112,9 @@ public class Experimento5DRunner {
         System.out.println("================================================================================");
         System.out.println("Modo de ventana 5D       : " + (ventanaFija ? "Condiciones Iguales (Días 1 al 5 Fijos)" : "Ventanas Deslizantes"));
         System.out.println("Réplicas por combinación : " + replicas);
-        System.out.println("Combinaciones a evaluar  : 6 (3 Volúmenes x 2 Disrupciones)");
-        System.out.println("Total de instancias      : " + (6 * replicas));
-        System.out.println("Total corridas (filas)   : " + (6 * replicas * 2));
+        System.out.println("Combinaciones a evaluar  : 3 (3 Volúmenes)");
+        System.out.println("Total de instancias      : " + (3 * replicas));
+        System.out.println("Total corridas (filas)   : " + (3 * replicas * 2));
         System.out.println("Archivo CSV de salida    : " + archivoSalida);
         System.out.println("================================================================================\n");
 
@@ -132,15 +131,13 @@ public class Experimento5DRunner {
         for (NivelVolumen vol : volumnes) {
             for (NivelDisrupcion dis : disrupciones) {
                 combIdx++;
-                System.out.printf("[%d/6] INICIANDO BLOQUE: Volumen=%s (%d pedidos) | Disrupción=%s (averías=%b)%n",
-                        combIdx, vol.etiqueta.toUpperCase(), vol.maxPedidos5D, dis.etiqueta.toUpperCase(), dis.conAverias);
+                System.out.printf("[%d/3] INICIANDO BLOQUE: Volumen=%s (%d pedidos)%n",
+                        combIdx, vol.etiqueta.toUpperCase(), vol.maxPedidos5D);
 
                 // Pre-cargar pedidos y bloqueos del mes en memoria
                 List<Pedido> pedidosMesCompleto = cargarPedidosMes(dirDatos, vol.mesArchivo, cargador);
 
-                String archivoBloqueo = dis == NivelDisrupcion.ALTO
-                        ? "bloqueo.2610.txt" // Pico de bloqueos (alta disrupción)
-                        : "bloqueo." + vol.mesArchivo.substring(2) + ".txt"; // Bloqueos nominales del mes
+                String archivoBloqueo = "bloqueo." + vol.mesArchivo.substring(2) + ".txt"; // Bloqueos nominales del mes
 
                 List<Bloqueo> bloqueosMesCompleto = cargarBloqueosMes(dirDatos, archivoBloqueo, cargador);
 
