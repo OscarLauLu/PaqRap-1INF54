@@ -5,18 +5,12 @@
 -- ============================================================
 
 -- 1. TIPOS DE VEHÍCULO (RF-39, RF-40, RF-41, RF-46)
--- Clave natural: TA (Auto), TM (Moto), TB (Bicicleta).
--- Velocidades correctas del caso oficial: Auto 40 km/h, Moto 25 km/h, Bicicleta 12 km/h
--- (capacidades y costos ya estaban correctos: 24/S8, 8/S6, 4/S3)
 INSERT INTO tipo_vehiculo (codigo, nombre, capacidad_maxima, velocidad_promedio_kmh, costo_por_km)
 VALUES ('TA', 'Auto', 24, 40.0, 8.00);
-
 INSERT INTO tipo_vehiculo (codigo, nombre, capacidad_maxima, velocidad_promedio_kmh, costo_por_km)
 VALUES ('TM', 'Moto', 8, 25.0, 6.00);
-
 INSERT INTO tipo_vehiculo (codigo, nombre, capacidad_maxima, velocidad_promedio_kmh, costo_por_km)
 VALUES ('TB', 'Bicicleta', 4, 12.0, 3.00);
-
 -- 2. ALMACENES (RF-17, RF-18, RF-19, RF-20)
 -- Almacén Central en (27, 14): stock_actual NULL = infinito (CHECK de la tabla "almacen")
 INSERT INTO almacen (codigo, tipo_almacen, nombre, ubicacion_x, ubicacion_y, stock_actual, capacidad_maxima, umbral_alerta_ocupacion, hora_recarga_diaria)

@@ -311,7 +311,7 @@ public class BenchmarkMetaheuristicas {
     }
 
     public static List<UnidadTransporte> crearFlotaEstandar() {
-        return crearFlotaDinamica(null, 4, 3, 3);
+        return crearFlotaDinamica(null, 10, 15, 12);
     }
 
     public static List<UnidadTransporte> crearFlotaDinamica(String rutaMantenimiento, Integer nAutos, Integer nMotos, Integer nBicis) {
@@ -371,8 +371,8 @@ public class BenchmarkMetaheuristicas {
             return flota;
         }
 
-        // Fallback por defecto: 4 Autos, 3 Motos, 3 Bicis
-        return crearFlotaDinamica(null, 4, 3, 3);
+        // Fallback por defecto: 10 Autos, 15 Motos, 12 Bicis
+        return crearFlotaDinamica(null, 10, 15, 12);
     }
 
     private static void imprimirResultados(int totalPedidos,
