@@ -48,8 +48,7 @@ public class Experimento5DRunner {
     }
 
     public enum NivelDisrupcion {
-        BAJO("bajo", false),
-        ALTO("alto", true);
+        BAJO("bajo", false);
 
         public final String etiqueta;
         public final boolean conAverias;
@@ -113,9 +112,9 @@ public class Experimento5DRunner {
         System.out.println("================================================================================");
         System.out.println("Modo de ventana 5D       : " + (ventanaFija ? "Condiciones Iguales (Días 1 al 5 Fijos)" : "Ventanas Deslizantes"));
         System.out.println("Réplicas por combinación : " + replicas);
-        System.out.println("Combinaciones a evaluar  : 6 (3 Volúmenes x 2 Disrupciones)");
-        System.out.println("Total de instancias      : " + (6 * replicas));
-        System.out.println("Total corridas (filas)   : " + (6 * replicas * 2));
+        System.out.println("Combinaciones a evaluar  : 3 (3 Volúmenes)");
+        System.out.println("Total de instancias      : " + (3 * replicas));
+        System.out.println("Total corridas (filas)   : " + (3 * replicas * 2));
         System.out.println("Archivo CSV de salida    : " + archivoSalida);
         System.out.println("================================================================================\n");
 
@@ -132,15 +131,13 @@ public class Experimento5DRunner {
         for (NivelVolumen vol : volumnes) {
             for (NivelDisrupcion dis : disrupciones) {
                 combIdx++;
-                System.out.printf("[%d/6] INICIANDO BLOQUE: Volumen=%s (%d pedidos) | Disrupción=%s (averías=%b)%n",
-                        combIdx, vol.etiqueta.toUpperCase(), vol.maxPedidos5D, dis.etiqueta.toUpperCase(), dis.conAverias);
+                System.out.printf("[%d/3] INICIANDO BLOQUE: Volumen=%s (%d pedidos)%n",
+                        combIdx, vol.etiqueta.toUpperCase(), vol.maxPedidos5D);
 
                 // Pre-cargar pedidos y bloqueos del mes en memoria
                 List<Pedido> pedidosMesCompleto = cargarPedidosMes(dirDatos, vol.mesArchivo, cargador);
 
-                String archivoBloqueo = dis == NivelDisrupcion.ALTO
-                        ? "bloqueo.2610.txt" // Pico de bloqueos (alta disrupción)
-                        : "bloqueo." + vol.mesArchivo.substring(2) + ".txt"; // Bloqueos nominales del mes
+                String archivoBloqueo = "bloqueo." + vol.mesArchivo.substring(2) + ".txt"; // Bloqueos nominales del mes
 
                 List<Bloqueo> bloqueosMesCompleto = cargarBloqueosMes(dirDatos, archivoBloqueo, cargador);
 
@@ -273,10 +270,26 @@ public class Experimento5DRunner {
 
     private static List<UnidadTransporte> crearFlota(boolean conAverias) {
         List<UnidadTransporte> flota = new ArrayList<>();
-        TipoVehiculo auto = TipoVehiculo.builder().codigo("TA").nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(20.0).costoPorKm(8.0).build();
-        TipoVehiculo moto = TipoVehiculo.builder().codigo("TM").nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(40.0).costoPorKm(6.0).build();
-        TipoVehiculo bici = TipoVehiculo.builder().codigo("TB").nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(14.0).costoPorKm(3.0).build();
+        
+        TipoVehiculo auto = TipoVehiculo.builder().id(1L).codigo("TA").nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
+        TipoVehiculo moto = TipoVehiculo.builder().id(2L).codigo("TM").nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
+        TipoVehiculo bici = TipoVehiculo.builder().id(3L).codigo("TB").nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
 
+        long id = 1;
+        
+        // 10 Autos (Tamaño correcto de oscar_dev)
+        for (int i = 1; i <= 10; i++) {
+            String codigo = String.format("TA%02d", i);
+            boolean averiado = conAverias && "TA02".equals(codigo);
+            flota.add(UnidadTransporte.builder()
+                    .id(id++)
+                    .codigo(codigo)
+                    .tipo(auto)
+                    .estadoOperativo(averiado ? EstadoOperativo.AVERIADA : EstadoOperativo.DISPONIBLE)
+                    .ubicacionActual(new Ubicacion(27, 14)) 
+                    .dadaDeBaja(averiado)                  
+                    .build());
+        }
         // 4 Autos
         for (int i = 1; i <= 4; i++) {
             String codigo = String.format("TA%02d", i);
@@ -290,8 +303,8 @@ public class Experimento5DRunner {
                     .build());
         }
 
-        // 3 Motos
-        for (int i = 1; i <= 3; i++) {
+        // 15 Motos
+        for (int i = 1; i <= 15; i++) {
             String codigo = String.format("TM%02d", i);
             boolean averiada = conAverias && "TM01".equals(codigo);
             flota.add(UnidadTransporte.builder()
@@ -303,8 +316,8 @@ public class Experimento5DRunner {
                     .build());
         }
 
-        // 3 Bicis
-        for (int i = 1; i <= 3; i++) {
+        // 12 Bicis
+        for (int i = 1; i <= 12; i++) {
             String codigo = String.format("TB%02d", i);
             flota.add(UnidadTransporte.builder()
                     .codigo(codigo)

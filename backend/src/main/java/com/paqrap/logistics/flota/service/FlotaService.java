@@ -110,6 +110,13 @@ public class FlotaService {
 
         Averia guardada = averiaRepository.save(averia);
         u.registrarAveria(guardada);
+        
+        // Regla FAQ: "Las unidades de transporte en las averías 2 y 3, son llevadas de manera instantánea al almacen central."
+        if (dto.getTipo() == TipoAveria.TIPO_2 || dto.getTipo() == TipoAveria.TIPO_3) {
+            u.setUbicacionActual(new Ubicacion(27, 14));
+            // Ojo: Los paquetes no entregados ya son liberados por el AveriaDestroyOperator para ser reasignados desde el almacén
+        }
+        
         unidadRepository.save(u);
 
         // Generar alerta de avería (RF-45)
