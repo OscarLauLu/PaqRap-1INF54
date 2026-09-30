@@ -72,14 +72,17 @@ public class Experimento5DRunner {
         public double costoOperativoTotal;
         public double saturacionAlmacenesPct;
         public long tiempoEjecucionMs;
+        public int makespanMin;
+        public double pctCumplimientoProductoP;
 
         public String toCsvLine() {
             return String.format(Locale.US,
-                    "%s,%s,%s,%d,%d,%d,%d,%d,%.2f,%.2f,%.2f,%d",
+                    "%s,%s,%s,%d,%d,%d,%d,%d,%.2f,%.2f,%.2f,%d,%d,%.2f",
                     volumen, disrupcion, algoritmo, replica, semilla,
                     pedidosTotales, pedidosAtendidos, pedidosATiempo,
                     pctCumplimientoGlobal, costoOperativoTotal,
-                    saturacionAlmacenesPct, tiempoEjecucionMs);
+                    saturacionAlmacenesPct, tiempoEjecucionMs,
+                    makespanMin, pctCumplimientoProductoP);
         }
     }
 
@@ -161,10 +164,10 @@ public class Experimento5DRunner {
                             pedidosInstancia, bloqueosInstancia, dis.conAverias);
                     resultados.add(rAlns);
 
-                    System.out.printf("   [Rép %02d/%02d | Sem %d | Ventana d%02d+%02dh | %d ped] ACO: Cumpl=%5.1f%%, Costo=S/%7.2f, T=%4dms | ALNS: Cumpl=%5.1f%%, Costo=S/%7.2f, T=%4dms%n",
+                    System.out.printf("   [Rép %02d/%02d | Sem %d | Ventana d%02d+%02dh | %d ped] ACO: Cumpl=%5.1f%%, CumplProdP=%5.1f%%, Makespan=%d, Costo=S/%7.2f, T=%4dms | ALNS: Cumpl=%5.1f%%, CumplProdP=%5.1f%%, Makespan=%d, Costo=S/%7.2f, T=%4dms%n",
                             rep, replicas, semilla, diaInicio, horaInicio, pedidosInstancia.size(),
-                            rAco.pctCumplimientoGlobal, rAco.costoOperativoTotal, rAco.tiempoEjecucionMs,
-                            rAlns.pctCumplimientoGlobal, rAlns.costoOperativoTotal, rAlns.tiempoEjecucionMs);
+                            rAco.pctCumplimientoGlobal, rAco.pctCumplimientoProductoP, rAco.makespanMin, rAco.costoOperativoTotal, rAco.tiempoEjecucionMs,
+                            rAlns.pctCumplimientoGlobal, rAlns.pctCumplimientoProductoP, rAlns.makespanMin, rAlns.costoOperativoTotal, rAlns.tiempoEjecucionMs);
                 }
                 System.out.println();
             }
@@ -230,12 +233,25 @@ public class Experimento5DRunner {
         // Cálculo de métricas
         int pedidosAtendidos = 0;
         int aTiempo = 0;
+        
+        int cantidadTotalProducto = pedidos.stream().mapToInt(Pedido::getCantidadUnidades).sum();
+        int cantidadATiempoProducto = 0;
+
         double costoTotal = 0.0;
         int demandaAlmacenesIntermedios = 0;
+        int makespan = 0;
 
         if (rutas != null) {
             for (Ruta r : rutas) {
                 costoTotal += r.getCostoTotal();
+                int tiempoRuta = r.getTiempoEstimadoMin();
+                if (tiempoRuta == 0) {
+                    tiempoRuta = r.calcularTiempoEstimado();
+                }
+                if (tiempoRuta > makespan) {
+                    makespan = tiempoRuta;
+                }
+                
                 if (r.getAlmacenOrigen() instanceof AlmacenIntermedio) {
                     demandaAlmacenesIntermedios += r.getParadas().stream()
                             .mapToInt(p -> p.getPedido() != null ? p.getPedido().getCantidadUnidades() : 0).sum();
@@ -243,12 +259,16 @@ public class Experimento5DRunner {
                 for (ParadaRuta p : r.getParadas()) {
                     if (p.getPedido() != null) {
                         pedidosAtendidos++;
+                        int cantidadPed = p.getPedido().getCantidadUnidades();
+                        
                         if (p.getHoraEstimadaLlegada() != null && p.getPedido().getPlazoLimiteEntrega() != null) {
                             if (!p.getHoraEstimadaLlegada().isAfter(p.getPedido().getPlazoLimiteEntrega())) {
                                 aTiempo++;
+                                cantidadATiempoProducto += cantidadPed;
                             }
                         } else {
                             aTiempo++;
+                            cantidadATiempoProducto += cantidadPed;
                         }
                     }
                 }
@@ -264,6 +284,10 @@ public class Experimento5DRunner {
         fila.costoOperativoTotal = Math.round(costoTotal * 100.0) / 100.0;
         // Capacidad total de almacenes intermedios = 2 x 1000 = 2000 unidades
         fila.saturacionAlmacenesPct = Math.round((demandaAlmacenesIntermedios * 100.0 / 2000.0) * 100.0) / 100.0;
+        fila.makespanMin = makespan;
+        fila.pctCumplimientoProductoP = cantidadTotalProducto > 0
+                ? (cantidadATiempoProducto * 100.0) / cantidadTotalProducto
+                : 100.0;
 
         return fila;
     }
