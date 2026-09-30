@@ -14,12 +14,16 @@ def calc_stats(series):
         'Desv. estándar': series.std()
     }
 
-print("=== Resumen Global (Cumplimiento %) ===")
-print("ALNS:", calc_stats(alns['pct_cumplimiento_global']))
-print("ACO:", calc_stats(aco['pct_cumplimiento_global']))
-print("Wilcoxon p-val:", stats.wilcoxon(alns['pct_cumplimiento_global'], aco['pct_cumplimiento_global']).pvalue)
+metricas = {
+    'Cumplimiento Global (%)': 'pct_cumplimiento_global',
+    'Cumplimiento Producto P (%)': 'pct_cumplimiento_producto_p',
+    'Makespan (min)': 'makespan_min',
+    'Tiempo Cómputo (ms)': 'tiempo_ejecucion_ms'
+}
 
-print("\n=== Resumen Global (Tiempos ms) ===")
-print("ALNS:", calc_stats(alns['tiempo_ejecucion_ms']))
-print("ACO:", calc_stats(aco['tiempo_ejecucion_ms']))
-print("Wilcoxon p-val:", stats.wilcoxon(alns['tiempo_ejecucion_ms'], aco['tiempo_ejecucion_ms']).pvalue)
+for nombre, col in metricas.items():
+    print(f"\n=== Resumen Global ({nombre}) ===")
+    print("ALNS:", calc_stats(alns[col]))
+    print("ACO:", calc_stats(aco[col]))
+    print("Wilcoxon p-val:", stats.wilcoxon(alns[col], aco[col]).pvalue)
+
