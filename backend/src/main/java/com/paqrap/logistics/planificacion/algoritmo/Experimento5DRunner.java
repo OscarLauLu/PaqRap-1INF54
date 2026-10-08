@@ -72,14 +72,17 @@ public class Experimento5DRunner {
         public double costoOperativoTotal;
         public double saturacionAlmacenesPct;
         public long tiempoEjecucionMs;
+        public int makespanMin;
+        public double pctCumplimientoProductoP;
 
         public String toCsvLine() {
             return String.format(Locale.US,
-                    "%s,%s,%s,%d,%d,%d,%d,%d,%.2f,%.2f,%.2f,%d",
+                    "%s,%s,%s,%d,%d,%d,%d,%d,%.2f,%.2f,%.2f,%d,%d,%.2f",
                     volumen, disrupcion, algoritmo, replica, semilla,
                     pedidosTotales, pedidosAtendidos, pedidosATiempo,
                     pctCumplimientoGlobal, costoOperativoTotal,
-                    saturacionAlmacenesPct, tiempoEjecucionMs);
+                    saturacionAlmacenesPct, tiempoEjecucionMs,
+                    makespanMin, pctCumplimientoProductoP);
         }
     }
 
@@ -161,10 +164,10 @@ public class Experimento5DRunner {
                             pedidosInstancia, bloqueosInstancia, dis.conAverias);
                     resultados.add(rAlns);
 
-                    System.out.printf("   [Rép %02d/%02d | Sem %d | Ventana d%02d+%02dh | %d ped] ACO: Cumpl=%5.1f%%, Costo=S/%7.2f, T=%4dms | ALNS: Cumpl=%5.1f%%, Costo=S/%7.2f, T=%4dms%n",
+                    System.out.printf("   [Rép %02d/%02d | Sem %d | Ventana d%02d+%02dh | %d ped] ACO: Cumpl=%5.1f%%, CumplProdP=%5.1f%%, Makespan=%d, Costo=S/%7.2f, T=%4dms | ALNS: Cumpl=%5.1f%%, CumplProdP=%5.1f%%, Makespan=%d, Costo=S/%7.2f, T=%4dms%n",
                             rep, replicas, semilla, diaInicio, horaInicio, pedidosInstancia.size(),
-                            rAco.pctCumplimientoGlobal, rAco.costoOperativoTotal, rAco.tiempoEjecucionMs,
-                            rAlns.pctCumplimientoGlobal, rAlns.costoOperativoTotal, rAlns.tiempoEjecucionMs);
+                            rAco.pctCumplimientoGlobal, rAco.pctCumplimientoProductoP, rAco.makespanMin, rAco.costoOperativoTotal, rAco.tiempoEjecucionMs,
+                            rAlns.pctCumplimientoGlobal, rAlns.pctCumplimientoProductoP, rAlns.makespanMin, rAlns.costoOperativoTotal, rAlns.tiempoEjecucionMs);
                 }
                 System.out.println();
             }
@@ -230,12 +233,25 @@ public class Experimento5DRunner {
         // Cálculo de métricas
         int pedidosAtendidos = 0;
         int aTiempo = 0;
+        
+        int cantidadTotalProducto = pedidos.stream().mapToInt(Pedido::getCantidadUnidades).sum();
+        int cantidadATiempoProducto = 0;
+
         double costoTotal = 0.0;
         int demandaAlmacenesIntermedios = 0;
+        int makespan = 0;
 
         if (rutas != null) {
             for (Ruta r : rutas) {
                 costoTotal += r.getCostoTotal();
+                int tiempoRuta = r.getTiempoEstimadoMin();
+                if (tiempoRuta == 0) {
+                    tiempoRuta = r.calcularTiempoEstimado();
+                }
+                if (tiempoRuta > makespan) {
+                    makespan = tiempoRuta;
+                }
+                
                 if (r.getAlmacenOrigen() instanceof AlmacenIntermedio) {
                     demandaAlmacenesIntermedios += r.getParadas().stream()
                             .mapToInt(p -> p.getPedido() != null ? p.getPedido().getCantidadUnidades() : 0).sum();
@@ -243,12 +259,16 @@ public class Experimento5DRunner {
                 for (ParadaRuta p : r.getParadas()) {
                     if (p.getPedido() != null) {
                         pedidosAtendidos++;
+                        int cantidadPed = p.getPedido().getCantidadUnidades();
+                        
                         if (p.getHoraEstimadaLlegada() != null && p.getPedido().getPlazoLimiteEntrega() != null) {
                             if (!p.getHoraEstimadaLlegada().isAfter(p.getPedido().getPlazoLimiteEntrega())) {
                                 aTiempo++;
+                                cantidadATiempoProducto += cantidadPed;
                             }
                         } else {
                             aTiempo++;
+                            cantidadATiempoProducto += cantidadPed;
                         }
                     }
                 }
@@ -264,6 +284,10 @@ public class Experimento5DRunner {
         fila.costoOperativoTotal = Math.round(costoTotal * 100.0) / 100.0;
         // Capacidad total de almacenes intermedios = 2 x 1000 = 2000 unidades
         fila.saturacionAlmacenesPct = Math.round((demandaAlmacenesIntermedios * 100.0 / 2000.0) * 100.0) / 100.0;
+        fila.makespanMin = makespan;
+        fila.pctCumplimientoProductoP = cantidadTotalProducto > 0
+                ? (cantidadATiempoProducto * 100.0) / cantidadTotalProducto
+                : 100.0;
 
         return fila;
     }
@@ -271,9 +295,9 @@ public class Experimento5DRunner {
     private static List<UnidadTransporte> crearFlota(boolean conAverias) {
         List<UnidadTransporte> flota = new ArrayList<>();
         
-        TipoVehiculo auto = TipoVehiculo.builder().id(1L).codigo("TA").nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
-        TipoVehiculo moto = TipoVehiculo.builder().id(2L).codigo("TM").nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
-        TipoVehiculo bici = TipoVehiculo.builder().id(3L).codigo("TB").nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
+        TipoVehiculo auto = TipoVehiculo.builder().codigo("TA").nombre("Auto").capacidadMaxima(24).velocidadPromedioKmH(40.0).costoPorKm(8.0).build();
+        TipoVehiculo moto = TipoVehiculo.builder().codigo("TM").nombre("Moto").capacidadMaxima(8).velocidadPromedioKmH(25.0).costoPorKm(6.0).build();
+        TipoVehiculo bici = TipoVehiculo.builder().codigo("TB").nombre("Bicicleta").capacidadMaxima(4).velocidadPromedioKmH(12.0).costoPorKm(3.0).build();
 
         long id = 1;
         
@@ -282,24 +306,12 @@ public class Experimento5DRunner {
             String codigo = String.format("TA%02d", i);
             boolean averiado = conAverias && "TA02".equals(codigo);
             flota.add(UnidadTransporte.builder()
-                    .id(id++)
+                    
                     .codigo(codigo)
                     .tipo(auto)
                     .estadoOperativo(averiado ? EstadoOperativo.AVERIADA : EstadoOperativo.DISPONIBLE)
                     .ubicacionActual(new Ubicacion(27, 14)) 
                     .dadaDeBaja(averiado)                  
-                    .build());
-        }
-        // 4 Autos
-        for (int i = 1; i <= 4; i++) {
-            String codigo = String.format("TA%02d", i);
-            boolean averiado = conAverias && "TA02".equals(codigo);
-            flota.add(UnidadTransporte.builder()
-                    .codigo(codigo)
-                    .tipo(auto)
-                    .estadoOperativo(averiado ? EstadoOperativo.AVERIADA : EstadoOperativo.DISPONIBLE)
-                    .ubicacionActual(new Ubicacion(27, 14))
-                    .dadaDeBaja(averiado)
                     .build());
         }
 

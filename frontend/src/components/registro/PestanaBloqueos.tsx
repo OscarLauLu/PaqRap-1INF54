@@ -1,20 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FileUp, Info, PenLine, Construction } from 'lucide-react';
+import { FileUp, FileText, Info, Construction, Upload } from 'lucide-react';
 import { bloqueosApi } from '../../api/bloqueosApi';
 import type { BloqueoVial } from '../../types';
-import type { NuevoBloqueoDatos } from '../../types/registro';
 import { derivarEstadoBloqueo } from '../../types/registro';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { inputBase } from './estilos';
-import { Aviso, Campo } from './ui';
+import { Aviso } from './ui';
 import { formatFechaHora } from './utils';
-
-interface Errores {
-  inicio?: string;
-  fin?: string;
-  coordenadas?: string;
-}
 
 const ESTADO_TONO = { Programado: 'azul', Activo: 'rojo', Vencido: 'gris' } as const;
 
@@ -26,13 +18,6 @@ export const PestanaBloqueos: React.FC = () => {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const inputArchivo = useRef<HTMLInputElement>(null);
-
-  // --- Flujo 2: registro manual de un bloqueo individual ---
-  const [inicio, setInicio] = useState('');
-  const [fin, setFin] = useState('');
-  const [coordenadasNodos, setCoordenadasNodos] = useState('');
-  const [errores, setErrores] = useState<Errores>({});
-  const [registrando, setRegistrando] = useState(false);
 
   const [mensaje, setMensaje] = useState<string | null>(null);
 
@@ -73,43 +58,14 @@ export const PestanaBloqueos: React.FC = () => {
     }
   };
 
-  const registrarManual = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const nuevos: Errores = {};
-    if (!inicio) nuevos.inicio = 'Elige la fecha y hora de inicio';
-    if (!fin) nuevos.fin = 'Elige la fecha y hora de fin';
-    if (fin && inicio && new Date(fin) <= new Date(inicio)) nuevos.fin = 'Debe ser posterior al inicio';
-    if (!coordenadasNodos.trim()) nuevos.coordenadas = 'Ingresa las coordenadas de los tramos (x1,y1,x2,y2,...)';
-
-    setErrores(nuevos);
-    if (Object.keys(nuevos).length > 0) return;
-
-    setRegistrando(true);
-    try {
-      const datos: NuevoBloqueoDatos = {
-        inicio: new Date(inicio).toISOString(),
-        fin: new Date(fin).toISOString(),
-        coordenadasNodos: coordenadasNodos.trim(),
-      };
-      const registrado = await bloqueosApi.registrarManual(datos);
-      setMensaje(`Bloqueo ${registrado.codigo} registrado manualmente.`);
-      setInicio('');
-      setFin('');
-      setCoordenadasNodos('');
-      cargarBloqueos();
-    } catch {
-      setMensaje('No se pudo registrar el bloqueo. Verifica los datos e inténtalo de nuevo.');
-    } finally {
-      setRegistrando(false);
-    }
-  };
-
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card icono={FileUp} titulo="Subir archivo de bloqueos">
+      {/* ===== Nuevo bloqueo (diseño del mockup) ===== */}
+      <div className="space-y-4">
+        <Card icono={FileText} titulo="Nuevo bloqueo">
           <input ref={inputArchivo} type="file" accept=".txt,.csv" onChange={handleArchivo} className="hidden" />
-          <div className="flex flex-col items-center gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+            {/* Zona para seleccionar el archivo */}
             <button
               type="button"
               onClick={abrirSelector}
@@ -121,51 +77,43 @@ export const PestanaBloqueos: React.FC = () => {
               </span>
               <span className="text-xs text-(--color-ink-400)">formato aaaamm.bloqueadas</span>
             </button>
-            <div className="flex items-start gap-2 rounded-lg bg-(--color-brand-50) px-4 py-3 text-xs text-(--color-ink-500) w-full">
-              <Info className="w-4 h-4 text-(--color-brand-500) shrink-0 mt-0.5" />
-              <p>Registra en bloque todos los bloqueos planificados por la municipalidad para el mes (RF-11).</p>
+
+            {/* Recuadro informativo */}
+            <div className="flex items-center gap-3 rounded-md bg-(--color-brand-50) px-6 py-10 text-sm font-semibold text-(--color-ink-500)">
+              <Info className="w-6 h-6 text-(--color-brand-500) shrink-0" />
+              <p>
+                El archivo a subir debe contener los bloqueos de las calles en el formato adecuado
+                <span className="block mt-1 text-xs font-normal text-(--color-ink-400)">
+                </span>
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={subirArchivo}
-              disabled={!archivo || subiendo}
-              className="w-full rounded-xl bg-(--color-brand-500) hover:bg-(--color-brand-600) disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-2.5 text-sm transition-colors"
-            >
-              {subiendo ? 'Procesando...' : 'Procesar archivo'}
-            </button>
           </div>
         </Card>
 
-        <Card icono={PenLine} titulo="Registro manual de un bloqueo">
-          <form onSubmit={registrarManual} noValidate className="space-y-4">
-            <Campo etiqueta="Inicio de bloqueo" error={errores.inicio}>
-              <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)} className={inputBase} />
-            </Campo>
-            <Campo etiqueta="Fin de bloqueo" error={errores.fin}>
-              <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)} className={inputBase} />
-            </Campo>
-            <Campo etiqueta="Ubicación (tramos)" error={errores.coordenadas}>
-              <input
-                type="text"
-                value={coordenadasNodos}
-                onChange={(e) => setCoordenadasNodos(e.target.value)}
-                placeholder="31,21,34,21"
-                className={inputBase}
-              />
-            </Campo>
-            <button
-              type="submit"
-              disabled={registrando}
-              className="w-full rounded-xl bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white font-semibold px-6 py-2.5 text-sm transition-colors"
-            >
-              {registrando ? 'Registrando...' : 'Registrar bloqueo'}
-            </button>
-          </form>
-        </Card>
+        {/* Botones de acción alineados a la derecha */}
+        <div className="flex flex-wrap justify-end gap-4">
+          <button
+            type="button"
+            onClick={abrirSelector}
+            className="flex items-center gap-2 rounded-lg bg-gray-500 hover:bg-gray-600 text-white font-semibold px-5 py-2.5 text-sm transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Cargar archivo
+          </button>
+          <button
+            type="button"
+            onClick={subirArchivo}
+            disabled={!archivo || subiendo}
+            className="rounded-lg bg-(--color-brand-500) hover:bg-(--color-brand-600) disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-7 py-2.5 text-sm transition-colors"
+          >
+            {subiendo ? 'Procesando...' : 'Registrar bloqueo'}
+          </button>
+        </div>
       </div>
 
       {mensaje && <Aviso mensaje={mensaje} onCerrar={() => setMensaje(null)} />}
 
+      {/* ===== Tabla (sin cambios) ===== */}
       <div>
         <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900) mb-3">
           <Construction className="w-5 h-5 text-(--color-brand-500)" />

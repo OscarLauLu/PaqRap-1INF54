@@ -7,7 +7,6 @@ import { FormularioPedido } from './FormularioPedido';
 import { TablaPedidos } from './TablaPedidos';
 import { PestanaAverias } from './PestanaAverias';
 import { PestanaBloqueos } from './PestanaBloqueos';
-import { StatTile } from '../ui/Card';
 import { Aviso } from './ui';
 import { formatFechaHora } from './utils';
 
@@ -50,11 +49,6 @@ export const RegistroPage: React.FC = () => {
     }
   };
 
-  const totalPedidos = pedidos.length;
-  const porAtender = pedidos.filter((p) => p.estado === 'REGISTRADO').length;
-  const planificados = pedidos.filter((p) => p.estado === 'PLANIFICADO' || p.estado === 'EN_RUTA').length;
-  const entregados = pedidos.filter((p) => p.estado === 'ENTREGADO').length;
-
   return (
     <main className="flex-1 p-6 md:p-8 space-y-6">
       {/* Pestañas */}
@@ -89,50 +83,45 @@ export const RegistroPage: React.FC = () => {
 
       {pestana === 'pedidos' && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatTile etiqueta="Total pedidos" valor={totalPedidos} tono="azul" />
-            <StatTile etiqueta="Por atender" valor={porAtender} tono="ambar" />
-            <StatTile etiqueta="Planificados / en ruta" valor={planificados} tono="neutro" />
-            <StatTile etiqueta="Entregados" valor={entregados} tono="verde" />
-          </div>
-
           <FormularioPedido onSubmit={handleRegistrar} />
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900)">
-              <ClipboardList className="w-5 h-5 text-(--color-brand-500)" />
-              Lista de pedidos
-            </h2>
-            <div className="flex items-center gap-3">
-              <input
-                ref={inputArchivo}
-                type="file"
-                accept=".txt,.csv"
-                onChange={handleArchivo}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => inputArchivo.current?.click()}
-                disabled={subiendoArchivo}
-                className="flex items-center gap-2 rounded-xl bg-gray-500 hover:bg-gray-600 disabled:opacity-50 text-white font-semibold px-5 py-2.5 text-sm transition-colors"
-              >
-                {subiendoArchivo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                Cargar archivo
-              </button>
-              <button
-                type="submit"
-                form="form-nuevo-pedido"
-                className="rounded-xl bg-(--color-brand-500) hover:bg-(--color-brand-600) active:bg-(--color-brand-700) text-white font-semibold px-6 py-2.5 text-sm transition-colors"
-              >
-                Registrar pedido
-              </button>
-            </div>
+          {/* Botones de acción alineados a la derecha (igual que en Bloqueos) */}
+          <div className="flex flex-wrap justify-end gap-4">
+            <input
+              ref={inputArchivo}
+              type="file"
+              accept=".txt,.csv"
+              onChange={handleArchivo}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => inputArchivo.current?.click()}
+              disabled={subiendoArchivo}
+              className="flex items-center gap-2 rounded-xl bg-gray-500 hover:bg-gray-600 disabled:opacity-50 text-white font-semibold px-5 py-2.5 text-sm transition-colors"
+            >
+              {subiendoArchivo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              Cargar archivo
+            </button>
+            <button
+              type="submit"
+              form="form-nuevo-pedido"
+              className="rounded-xl bg-(--color-brand-500) hover:bg-(--color-brand-600) active:bg-(--color-brand-700) text-white font-semibold px-6 py-2.5 text-sm transition-colors"
+            >
+              Registrar pedido
+            </button>
           </div>
 
           {mensaje && <Aviso mensaje={mensaje} onCerrar={() => setMensaje(null)} />}
 
-          <TablaPedidos pedidos={pedidos} cargando={cargando} />
+          {/* Lista de pedidos (título encima de la tabla, igual que "Bloqueos registrados") */}
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900) mb-3">
+              <ClipboardList className="w-5 h-5 text-(--color-brand-500)" />
+              Lista de pedidos
+            </h2>
+            <TablaPedidos pedidos={pedidos} cargando={cargando} />
+          </div>
         </>
       )}
 

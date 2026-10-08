@@ -204,4 +204,5 @@ export interface ParametrosSimulacionRequest {
   tasaIncrementoPedidos?: number;
   archivoPedidos?: string;
   archivoBloqueos?: string;
+  fechaHoraInicio?: string;
 }
