@@ -65,23 +65,18 @@ export const PestanaBloqueos: React.FC = () => {
         <Card icono={FileText} titulo="Nuevo bloqueo">
           <input ref={inputArchivo} type="file" accept=".txt,.csv" onChange={handleArchivo} className="hidden" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-            {/* Tarjeta del archivo */}
-            <div className="flex justify-center">
-              <button
-                type="button"
-                onClick={abrirSelector}
-                title={archivo ? archivo.name : 'Seleccionar archivo'}
-                className="w-52 h-36 rounded-lg border border-(--color-brand-500) bg-white hover:bg-(--color-brand-50) transition-colors flex flex-col items-center justify-between py-4 px-3"
-              >
-                <span className="font-bold text-(--color-brand-500) text-sm">Bloqueos</span>
-                <FileUp className="w-8 h-8 text-(--color-brand-500)" />
-                {archivo ? (
-                  <span className="font-bold text-sm text-green-500">cargado</span>
-                ) : (
-                  <span className="font-semibold text-sm text-(--color-ink-400)">sin archivo</span>
-                )}
-              </button>
-            </div>
+            {/* Zona para seleccionar el archivo */}
+            <button
+              type="button"
+              onClick={abrirSelector}
+              className="w-full h-32 rounded-xl border-2 border-dashed border-(--color-brand-500) bg-(--color-brand-50) hover:bg-(--color-brand-100) transition-colors flex flex-col items-center justify-center gap-1"
+            >
+              <FileUp className="w-8 h-8 text-(--color-brand-500)" />
+              <span className="font-bold text-(--color-brand-700) text-sm">
+                {archivo ? archivo.name : 'Selecciona el archivo mensual'}
+              </span>
+              <span className="text-xs text-(--color-ink-400)">formato aaaamm.bloqueadas</span>
+            </button>
 
             {/* Recuadro informativo */}
             <div className="flex items-center gap-3 rounded-md bg-(--color-brand-50) px-6 py-10 text-sm font-semibold text-(--color-ink-500)">
@@ -89,14 +84,10 @@ export const PestanaBloqueos: React.FC = () => {
               <p>
                 El archivo a subir debe contener los bloqueos de las calles en el formato adecuado
                 <span className="block mt-1 text-xs font-normal text-(--color-ink-400)">
-                  (aaaamm.bloqueadas, RF-11)
                 </span>
               </p>
             </div>
           </div>
-          {archivo && (
-            <p className="mt-3 text-xs text-(--color-ink-400) truncate">Archivo seleccionado: {archivo.name}</p>
-          )}
         </Card>
 
         {/* Botones de acción alineados a la derecha */}
