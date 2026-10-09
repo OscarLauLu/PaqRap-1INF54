@@ -16,14 +16,14 @@ import java.nio.file.Paths;
 @Service
 public class ArchivoStorageService {
 
-    private static final Path CARPETA_BASE = Paths.get("datos", "uploads");
+    private static final Path CARPETA_BASE = Paths.get(System.getProperty("java.io.tmpdir"), "paqrap_uploads");
 
     public String guardar(MultipartFile archivo, String subcarpeta) throws IOException {
-        Path dir = CARPETA_BASE.resolve(subcarpeta);
+        Path dir = CARPETA_BASE.resolve(subcarpeta).toAbsolutePath();
         Files.createDirectories(dir);
         String nombreLimpio = System.currentTimeMillis() + "-" + archivo.getOriginalFilename();
         Path destino = dir.resolve(nombreLimpio);
-        archivo.transferTo(destino);
+        archivo.transferTo(destino.toFile());
         return destino.toString();
     }
 }

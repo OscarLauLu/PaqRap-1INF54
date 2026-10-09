@@ -131,10 +131,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
             <AlertTriangle size={16} /> Colapso logístico
           </div>
           <p className="text-xs text-red-600 mt-1">
-            Un pedido incumplió su plazo. Simulación detenida
-            {typeof metricas.volumenPedidosColapso === 'number' && (
-              <> con {metricas.volumenPedidosColapso} pedido(s) activos en ese instante.</>
-            )}
+            {metricas.volumenPedidosColapso ?? 1} pedido{(metricas.volumenPedidosColapso ?? 1) !== 1 ? 's' : ''} ya no pueden garantizarse dentro de su plazo.<br/>
+            <strong>Simulación detenida</strong>
           </p>
         </div>
       )}

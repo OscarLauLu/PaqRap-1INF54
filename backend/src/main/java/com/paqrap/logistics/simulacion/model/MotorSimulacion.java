@@ -131,8 +131,14 @@ public class MotorSimulacion {
             // Auto-load default data files if no prior configuration
             LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
             ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
-            defaultParams.setArchivoPedidos("datos/ventas.v20260909/ventas.202609.txt");
-            defaultParams.setArchivoBloqueos("datos/bloqueos/bloqueo.2609.txt");
+            // Resolve the 'datos' directory
+            java.io.File datosDir = new java.io.File("datos");
+            if (!datosDir.exists()) {
+                datosDir = new java.io.File("../datos");
+            }
+            
+            defaultParams.setArchivoPedidos(new java.io.File(datosDir, "ventas.v20260909/ventas.202609.txt").getAbsolutePath());
+            defaultParams.setArchivoBloqueos(new java.io.File(datosDir, "bloqueos/bloqueo.2609.txt").getAbsolutePath());
             defaultParams.setFechaHoraInicio(fechaElegida);
             configurar(defaultParams);
             log.info("Auto-configurado con archivos por defecto: {} pedidos, {} bloqueos",

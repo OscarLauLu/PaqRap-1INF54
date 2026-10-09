@@ -177,12 +177,11 @@ export const App: React.FC = () => {
     await alternarPausa();
   };
 
-  // ▶: sin simulación activa → inicia una nueva 5D; en pausa → reanuda.
   const play = async () => {
     if (estaPausada) {
       await reanudar();
     } else {
-      await arrancar('SIMULACION_5D');
+      await arrancar(escenarioSel);
     }
   };
 
@@ -275,8 +274,6 @@ export const App: React.FC = () => {
               onDetener={detenerMotor}
               onFinalizar={terminar}
             />
-          ) : escenarioSel === 'COLAPSO_LOGISTICO' ? (
-            <PantallaPendiente titulo="Simulación de colapso" detalle="La pantalla de este escenario todavía no está desarrollada." />
           ) : (
             <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
               {/* Barra superior (sin tarjeta: va directo sobre el fondo, como el mockup) */}
@@ -303,11 +300,10 @@ export const App: React.FC = () => {
                   {sinDatos && (
                     <span className="text-xs font-semibold text-amber-600 mr-2">
                       {motorActivo
-                        ? `${ocupadoPor ?? 'Otro escenario'} en ejecución: presiona ■ para detenerlo`
-                        : `Estos datos son de ${ocupadoPor}: presiona ▶ para iniciar la 5D`}
+                        ? `El motor está ocupado con ${ocupadoPor ?? 'otro escenario'}, por eso aquí no se muestran datos.`
+                        : `Los datos actuales son de ${ocupadoPor ?? 'otra simulación'}, por eso aquí no se muestran. Presiona ▶ para iniciar.`}
                     </span>
                   )}
-
                   {/* ▶ Iniciar (sin simulación) o continuar (en pausa) */}
                   <button
                     onClick={play}
