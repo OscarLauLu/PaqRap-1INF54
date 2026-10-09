@@ -101,6 +101,7 @@ export interface IncidenteItem {
 export type EstadoEjecucionSimulacion =
   | 'CONFIGURADA'
   | 'EN_EJECUCION'
+  | 'PAUSADA'
   | 'DETENIDA'
   | 'FINALIZADA'
   | 'DETENIDA_POR_COLAPSO';
@@ -110,6 +111,7 @@ export interface RelojSimuladoData {
   diaSimulado: number;
   horaSimulada: string;
   instanteActual: string;
+  instanteInicio?: string;
   factorAceleracion: number;
   estadoEjecucion: EstadoEjecucionSimulacion;
   pedidosEnCurso?: number;

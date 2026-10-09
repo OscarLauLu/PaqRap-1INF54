@@ -7,6 +7,7 @@ export function useSimulacion(pollIntervalMs: number = 3000) {
   const [reloj, setReloj] = useState<RelojSimuladoData>(INITIAL_RELOJ);
   const [loading, setLoading] = useState<boolean>(true);
   const [iniciando, setIniciando] = useState<boolean>(false);
+  const [cambiandoPausa, setCambiandoPausa] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchReloj = useCallback(async () => {
@@ -56,6 +57,45 @@ export function useSimulacion(pollIntervalMs: number = 3000) {
     }));
   };
 
+  // --- Pausa / reanudación (no finaliza la simulación) ---
+  const estaPausada = reloj.estadoEjecucion === 'PAUSADA';
+  const estaEnEjecucion = reloj.estadoEjecucion === 'EN_EJECUCION';
+
+  const pausar = async () => {
+    setCambiandoPausa(true);
+    try {
+      await simulacionApi.pausarSimulacion();
+      setReloj((prev) => ({ ...prev, estadoEjecucion: 'PAUSADA' }));
+      await fetchReloj();
+    } catch (e) {
+      console.warn('No se pudo pausar la simulación:', e);
+    } finally {
+      setCambiandoPausa(false);
+    }
+  };
+
+  const reanudar = async () => {
+    setCambiandoPausa(true);
+    try {
+      await simulacionApi.reanudarSimulacion();
+      setReloj((prev) => ({ ...prev, estadoEjecucion: 'EN_EJECUCION' }));
+      await fetchReloj();
+    } catch (e) {
+      console.warn('No se pudo reanudar la simulación:', e);
+    } finally {
+      setCambiandoPausa(false);
+    }
+  };
+
+  // Un solo botón: si está corriendo la pausa; si está pausada la reanuda.
+  const alternarPausa = async () => {
+    if (estaPausada) {
+      await reanudar();
+    } else if (estaEnEjecucion) {
+      await pausar();
+    }
+  };
+
   return {
     reloj,
     loading,
@@ -65,5 +105,11 @@ export function useSimulacion(pollIntervalMs: number = 3000) {
     iniciar,
     detener,
     finalizarSimulacion,
+    estaPausada,
+    estaEnEjecucion,
+    cambiandoPausa,
+    pausar,
+    reanudar,
+    alternarPausa,
   };
 }

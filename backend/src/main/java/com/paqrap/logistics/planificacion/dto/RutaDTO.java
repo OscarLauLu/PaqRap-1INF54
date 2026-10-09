@@ -1,6 +1,7 @@
 package com.paqrap.logistics.planificacion.dto;
 
 import com.paqrap.logistics.planificacion.model.EstadoRuta;
+import com.paqrap.logistics.redvial.model.Ubicacion;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -26,4 +27,8 @@ public class RutaDTO {
     private double costoTotal;
     private EstadoRuta estado;
     private List<ParadaRutaDTO> paradas;
+
+    // Esquinas por las que pasa la ruta, en orden. El frontend las necesita para dibujar
+    // el recorrido real en el mapa, ya que las paradas solas no dicen por qué calles se va.
+    private List<Ubicacion> camino;
 }
