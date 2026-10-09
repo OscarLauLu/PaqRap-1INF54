@@ -177,12 +177,11 @@ export const App: React.FC = () => {
     await alternarPausa();
   };
 
-  // ▶: sin simulación activa → inicia una nueva 5D; en pausa → reanuda.
   const play = async () => {
     if (estaPausada) {
       await reanudar();
     } else {
-      await arrancar('SIMULACION_5D');
+      await arrancar(escenarioSel);
     }
   };
 
@@ -301,8 +300,8 @@ export const App: React.FC = () => {
                   {sinDatos && (
                     <span className="text-xs font-semibold text-amber-600 mr-2">
                       {motorActivo
-                        ? `${ocupadoPor ?? 'Otro escenario'} en ejecución: presiona ■ para detenerlo`
-                        : `Estos datos son de ${ocupadoPor}: presiona ▶ para iniciar`}
+                        ? `El motor está ocupado con ${ocupadoPor ?? 'otro escenario'}, por eso aquí no se muestran datos.`
+                        : `Los datos actuales son de ${ocupadoPor ?? 'otra simulación'}, por eso aquí no se muestran. Presiona ▶ para iniciar.`}
                     </span>
                   )}
                   {/* ▶ Iniciar (sin simulación) o continuar (en pausa) */}
