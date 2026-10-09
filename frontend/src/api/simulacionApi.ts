@@ -51,6 +51,16 @@ export const simulacionApi = {
     return apiClient.post('/api/simulacion/detener');
   },
 
+  // Pausa la simulación sin finalizarla: el reloj se congela en el backend.
+  async pausarSimulacion() {
+    return apiClient.post('/api/simulacion/pausar');
+  },
+
+  // Reanuda una simulación pausada desde el mismo instante simulado.
+  async reanudarSimulacion() {
+    return apiClient.post('/api/simulacion/reanudar');
+  },
+
   async configurar(params: ParametrosSimulacionRequest) {
     return apiClient.post('/api/simulacion/configurar', params);
   },
