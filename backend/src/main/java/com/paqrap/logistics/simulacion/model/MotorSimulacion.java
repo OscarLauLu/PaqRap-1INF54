@@ -129,9 +129,11 @@ public class MotorSimulacion {
     public ResultadoSimulacion ejecutar(TipoEscenario escenario) {
         if (parametros == null || pedidosProgramados.isEmpty()) {
             // Auto-load default data files if no prior configuration
+            LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
             ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
             defaultParams.setArchivoPedidos("datos/ventas.v20260909/ventas.202609.txt");
             defaultParams.setArchivoBloqueos("datos/bloqueos/bloqueo.2609.txt");
+            defaultParams.setFechaHoraInicio(fechaElegida);
             configurar(defaultParams);
             log.info("Auto-configurado con archivos por defecto: {} pedidos, {} bloqueos",
                     pedidosProgramados.size(), bloqueosProgramados.size());
@@ -155,7 +157,7 @@ public class MotorSimulacion {
         this.averiasOcurridas = 0;
         this.instanteColapsoDetectado = null;
         this.volumenPedidosColapsoDetectado = null;
-        LocalDateTime inicioSim = LocalDateTime.of(2026, 9, 1, 0, 0, 0);
+        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null)? parametros.getFechaHoraInicio(): LocalDateTime.of(2026, 9, 1, 0, 0, 0);
         double factorAceleracion;
         switch (escenario) {
             case DIA_A_DIA:
@@ -413,6 +415,26 @@ public class MotorSimulacion {
                 .anyMatch(p -> p.getPlazoLimiteEntrega() != null && p.getPlazoLimiteEntrega().isBefore(ahora));
     }
 
+        /**
+     * Pausa la simulación sin perder el estado: el reloj se congela y se retoma al reanudar.
+     */
+    public void pausar() {
+        if (estado == EstadoEjecucion.EN_EJECUCION) {
+            estado = EstadoEjecucion.PAUSADA;
+            log.info("Simulación pausada en el instante {}", reloj.getInstanteActual());
+        }
+    }
+
+    /**
+     * Reanuda una simulación pausada desde el mismo instante simulado.
+     */
+    public void reanudar() {
+        if (estado == EstadoEjecucion.PAUSADA) {
+            estado = EstadoEjecucion.EN_EJECUCION;
+            log.info("Simulación reanudada en el instante {}", reloj.getInstanteActual());
+        }
+    }
+
     /**
      * Detiene la corrida de la simulación y consolida los resultados (RF-73, RF-74).
      */
@@ -420,7 +442,7 @@ public class MotorSimulacion {
         if (executorService != null && !executorService.isShutdown()) {
             executorService.shutdown();
         }
-        if (estado == EstadoEjecucion.EN_EJECUCION) {
+        if (estado == EstadoEjecucion.EN_EJECUCION || estado == EstadoEjecucion.PAUSADA) {
             estado = EstadoEjecucion.FINALIZADA;
             construirResultado(escenarioActual != null ? escenarioActual : TipoEscenario.DIA_A_DIA);
         }

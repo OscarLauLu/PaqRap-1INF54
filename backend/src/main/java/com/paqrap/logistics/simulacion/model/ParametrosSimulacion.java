@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
 
 /**
  * Parámetros de configuración previa de una corrida de simulación (RF-64).
@@ -35,6 +36,8 @@ public class ParametrosSimulacion {
     private String archivoPedidos;
 
     private String archivoBloqueos;
+
+    private LocalDateTime fechaHoraInicio;
 
     /**
      * Valida que todos los parámetros configurados cumplan con las restricciones de negocio (RF-64).
