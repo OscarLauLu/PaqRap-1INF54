@@ -147,8 +147,6 @@ export const App: React.FC = () => {
               onDetener={pausar}
               onFinalizar={terminar}
             />
-          ) : escenarioSel === 'COLAPSO_LOGISTICO' ? (
-            <PantallaPendiente titulo="Simulación de colapso" detalle="La pantalla de este escenario todavía no está desarrollada." />
           ) : (
             <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
               {/* Top Bar - Controls */}
@@ -164,10 +162,10 @@ export const App: React.FC = () => {
                     <span className="text-xs font-semibold text-amber-600 mr-2">
                       {motorCorriendo
                         ? `${ocupadoPor ?? 'Otro escenario'} en ejecución: presiona ■ para detenerlo`
-                        : `Estos datos son de ${ocupadoPor}: presiona ▶ para iniciar la 5D`}
+                        : `Estos datos son de ${ocupadoPor}: presiona ▶ para iniciar`}
                     </span>
                   )}
-                  <button onClick={() => arrancar('SIMULACION_5D')} disabled={motorCorriendo} className="p-2 bg-(--color-brand-50) text-(--color-brand-500) rounded-lg border border-(--color-brand-100) hover:bg-(--color-brand-100) transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><Play size={18} fill="currentColor" /></button>
+                  <button onClick={() => arrancar(escenarioSel)} disabled={motorCorriendo} className="p-2 bg-(--color-brand-50) text-(--color-brand-500) rounded-lg border border-(--color-brand-100) hover:bg-(--color-brand-100) transition-colors disabled:opacity-40 disabled:cursor-not-allowed"><Play size={18} fill="currentColor" /></button>
                   <button onClick={pausar} className="p-2 bg-gray-50 text-(--color-ink-500) rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"><Pause size={18} fill="currentColor" /></button>
                   <button onClick={terminar} className="p-2 bg-gray-50 text-(--color-ink-500) rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"><Square size={18} fill="currentColor" /></button>
                   <select value={speed} onChange={(e) => setSpeed(e.target.value)} className="bg-white border border-gray-300 text-(--color-ink-700) rounded-lg p-1.5 text-sm font-bold ml-2 outline-none">
