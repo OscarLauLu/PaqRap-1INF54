@@ -5,36 +5,45 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
  * Parámetros de configuración previa de una corrida de simulación (RF-64).
  */
 @Data
 @Builder
-@NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ParametrosSimulacion {
 
     @Builder.Default
     private int numAutos = 10;
-
     @Builder.Default
     private int numMotos = 10;
-
     @Builder.Default
     private int numBicicletas = 10;
-
     @Builder.Default
     private int capacidadAlmacenIntermedio = 1000;
-
     @Builder.Default
     private double tasaIncrementoPedidos = 1.0;
+
+    public ParametrosSimulacion() {
+        this.numAutos = 10;
+        this.numMotos = 10;
+        this.numBicicletas = 10;
+        this.capacidadAlmacenIntermedio = 1000;
+        this.tasaIncrementoPedidos = 1.0;
+    }
 
     private ConfiguracionSemaforo rangosSemaforo;
 
     private String archivoPedidos;
 
     private String archivoBloqueos;
+
+    private LocalDateTime fechaHoraInicio;
 
     /**
      * Valida que todos los parámetros configurados cumplan con las restricciones de negocio (RF-64).

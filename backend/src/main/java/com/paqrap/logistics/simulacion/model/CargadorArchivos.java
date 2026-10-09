@@ -57,7 +57,7 @@ public class CargadorArchivos {
         int anio = 2026;
         int mes = 9;
         String nombreArchivo = new File(rutaArchivo).getName();
-        Matcher mAnioMes = Pattern.compile("(\\d{4})(\\d{2})").matcher(nombreArchivo);
+        Matcher mAnioMes = Pattern.compile("\\.(\\d{4})(\\d{2})").matcher(nombreArchivo);
         if (mAnioMes.find()) {
             anio = Integer.parseInt(mAnioMes.group(1));
             mes = Integer.parseInt(mAnioMes.group(2));
@@ -111,7 +111,6 @@ public class CargadorArchivos {
                                 codPadre = baseCodigo;
                             }
                             Pedido pedido = Pedido.builder()
-                                    .id((long) numLinea * 1000 + sub)
                                     .codigo(codFinal)
                                     .codigoPadre(codPadre)
                                     .cantidadUnidades(cantSub)
@@ -152,12 +151,12 @@ public class CargadorArchivos {
         int anio = 2026;
         int mes = 9;
         String nombreArchivo = new File(rutaArchivo).getName();
-        Matcher mAnioMes = Pattern.compile("(\\d{4})(\\d{2})").matcher(nombreArchivo);
+        Matcher mAnioMes = Pattern.compile("\\.(\\d{4})(\\d{2})").matcher(nombreArchivo);
         if (mAnioMes.find()) {
             anio = Integer.parseInt(mAnioMes.group(1));
             mes = Integer.parseInt(mAnioMes.group(2));
         } else {
-            Matcher mCorto = Pattern.compile("(\\d{2})(\\d{2})").matcher(nombreArchivo);
+            Matcher mCorto = Pattern.compile("\\.(\\d{2})(\\d{2})").matcher(nombreArchivo);
             if (mCorto.find()) {
                 anio = 2000 + Integer.parseInt(mCorto.group(1));
                 mes = Integer.parseInt(mCorto.group(2));
@@ -184,7 +183,6 @@ public class CargadorArchivos {
                         LocalDateTime fin = parsearFechaSimulada(tiempos[1].trim(), anio, mes);
 
                         Bloqueo b = Bloqueo.builder()
-                                .id((long) numLinea)
                                 .codigo("BLOQ-" + numLinea + "-" + UUID.randomUUID().toString().substring(0, 6))
                                 .fechaHoraInicio(inicio)
                                 .fechaHoraFin(fin)

@@ -52,6 +52,22 @@ public class SimulacionController {
         return ResponseEntity.ok("Simulación detenida.");
     }
 
+
+    @PostMapping("/pausar")
+    @Operation(summary = "Pausar la simulación en curso sin perder su estado")
+    public ResponseEntity<String> pausar() {
+        motorSimulacion.pausar();
+        return ResponseEntity.ok("Simulación pausada.");
+    }
+
+    @PostMapping("/reanudar")
+    @Operation(summary = "Reanudar una simulación pausada")
+    public ResponseEntity<String> reanudar() {
+        motorSimulacion.reanudar();
+        return ResponseEntity.ok("Simulación reanudada.");
+    }
+
+
     @GetMapping("/reloj")
     @Operation(summary = "Consultar el reloj simulado permanente (día y hora transcurridos) (RF-71)")
     public ResponseEntity<Map<String, Object>> consultarReloj() {
@@ -60,6 +76,7 @@ public class SimulacionController {
         resp.put("diaSimulado", relojSimulado.diaSimulado());
         resp.put("horaSimulada", relojSimulado.horaSimulada());
         resp.put("instanteActual", relojSimulado.getInstanteActual());
+        resp.put("instanteInicio", relojSimulado.getInstanteInicio());
         resp.put("factorAceleracion", relojSimulado.getFactorAceleracion());
         resp.put("estadoEjecucion", motorSimulacion.getEstado().name());
         return ResponseEntity.ok(resp);

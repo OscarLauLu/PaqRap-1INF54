@@ -20,10 +20,14 @@ import com.paqrap.logistics.flota.repository.TurnoRepository;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
 import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.simulacion.model.Alerta;
+import com.paqrap.logistics.simulacion.model.EstadoEjecucion;
+import com.paqrap.logistics.simulacion.model.MotorSimulacion;
+import com.paqrap.logistics.simulacion.model.RelojSimulado;
 import com.paqrap.logistics.simulacion.model.TipoAlerta;
 import com.paqrap.logistics.simulacion.repository.AlertaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +53,26 @@ public class FlotaService {
     private final TurnoRepository turnoRepository;
     private final AveriaRepository averiaRepository;
     private final AlertaRepository alertaRepository;
+
+    // Reloj de la simulación (RF-71). El motor se obtiene con ObjectProvider para evitar
+    // dependencias circulares (MotorSimulacion -> Planificador -> ... -> FlotaService).
+    private final RelojSimulado relojSimulado;
+    private final ObjectProvider<MotorSimulacion> motorSimulacionProvider;
+
+    /**
+     * Instante "actual" del sistema: si hay una simulación en ejecución se usa el reloj simulado;
+     * en caso contrario, la hora real del servidor.
+     */
+    private LocalDateTime momentoActual() {
+        MotorSimulacion motor = motorSimulacionProvider.getIfAvailable();
+        if (motor != null
+                && (motor.getEstado() == EstadoEjecucion.EN_EJECUCION
+                || motor.getEstado() == EstadoEjecucion.PAUSADA)
+                && relojSimulado.getInstanteActual() != null) {
+            return relojSimulado.getInstanteActual();
+        }
+        return LocalDateTime.now();
+    }
 
     @Transactional(readOnly = true)
     public List<UnidadTransporteDTO> listarUnidades(String tipo, EstadoOperativo estado) {
@@ -86,13 +110,14 @@ public class FlotaService {
 
     /**
      * Registra un evento de avería y genera una alerta visible (RF-14, RF-45).
+     * La fecha/hora del evento es la del reloj simulado si hay una simulación en ejecución.
      */
     @Transactional
     public Averia registrarAveria(String unidadId, RegistrarAveriaDTO dto) {
         UnidadTransporte u = unidadRepository.findById(unidadId)
                 .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", unidadId));
 
-        LocalDateTime ahora = LocalDateTime.now();
+        LocalDateTime ahora = momentoActual();
         Ubicacion ubicacion = new Ubicacion(dto.getUbicacionX(), dto.getUbicacionY());
 
         Averia averia = Averia.builder()
@@ -130,7 +155,8 @@ public class FlotaService {
                 .build();
         alertaRepository.save(alerta);
 
-        log.warn("Avería registrada en unidad {}: reincorporación estimada para {}", u.getCodigo(), reincorporacion);
+        log.warn("Avería registrada en unidad {} a las {}: reincorporación estimada para {}",
+                u.getCodigo(), ahora, reincorporacion);
         return guardada;
     }
 

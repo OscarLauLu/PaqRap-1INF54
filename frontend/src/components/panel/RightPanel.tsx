@@ -1,8 +1,22 @@
 import React, { useState } from 'react';
-import { Calendar, ChevronDown, ChevronUp, Clock, MapPin, Truck, AlertCircle, AlertTriangle, DollarSign, Bike as BikeIcon, Car as CarIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock, MapPin, Truck, AlertCircle, AlertTriangle, DollarSign, Bike as BikeIcon, Car as CarIcon, Wrench, Save, Loader2 } from 'lucide-react';
 import { RelojSimuladoData, Almacen, UnidadTransporte, Pedido, MetricasSimulacion, ESTADO_PEDIDO_LABEL } from '../../types';
+import type { TipoAveria } from '../../types/registro';
+import { averiasApi } from '../../api/averiasApi';
+import { formatFechaHora, parseUbicacion } from '../registro/utils';
+
+const TIPOS_AVERIA: { valor: TipoAveria; etiqueta: string }[] = [
+  { valor: 'TIPO_1', etiqueta: 'Tipo 1 — 2 h en el lugar' },
+  { valor: 'TIPO_2', etiqueta: 'Tipo 2 — hasta cambio de turno' },
+  { valor: 'TIPO_3', etiqueta: 'Tipo 3 — ≥ 2 días' },
+];
+
+const selectBase =
+  'w-full rounded-lg border border-(--color-ink-300) bg-white px-3 py-2 text-sm text-(--color-ink-900) outline-none focus:border-(--color-brand-500) focus:ring-2 focus:ring-(--color-brand-100) disabled:bg-gray-100';
 
 interface RightPanelProps {
+  // Se mantiene en la interfaz por compatibilidad con App.tsx; la fecha simulada ya se muestra
+  // en la barra superior de la pantalla, por eso el panel ya no la repite.
   reloj: RelojSimuladoData;
   almacenes: Almacen[];
   unidades: UnidadTransporte[];
@@ -13,8 +27,60 @@ interface RightPanelProps {
 
 const formatSoles = (valor: number) => `S/ ${valor.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export const RightPanel: React.FC<RightPanelProps> = ({ reloj, almacenes, unidades, pedidos, metricas, selectedUnidadCodigo }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, selectedUnidadCodigo }) => {
   const [expandedSection, setExpandedSection] = useState<string | null>('resumen');
+
+  // --- Registro de avería durante la simulación ---
+  const [unidadAveria, setUnidadAveria] = useState('');
+  const [tipoAveria, setTipoAveria] = useState<TipoAveria>('TIPO_1');
+  const [registrandoAveria, setRegistrandoAveria] = useState(false);
+  const [avisoAveria, setAvisoAveria] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  // Ejemplo para el placeholder: el código de una unidad real, si hay datos
+  const ejemploUnidad = unidades.find(u => u.activo)?.codigo ?? 'A3';
+
+  const registrarAveria = async () => {
+    const codigo = unidadAveria.trim().toUpperCase();
+    if (!codigo) {
+      setAvisoAveria({ ok: false, texto: 'Escribe el código de la unidad averiada.' });
+      return;
+    }
+    const unidad = unidades.find(u => u.codigo.toUpperCase() === codigo);
+    if (!unidad || !unidad.activo) {
+      setAvisoAveria({ ok: false, texto: `No existe una unidad activa con el código ${codigo}.` });
+      return;
+    }
+    if (unidad.estadoOperativo === 'AVERIADO') {
+      setAvisoAveria({ ok: false, texto: `La unidad ${unidad.codigo} ya está averiada.` });
+      return;
+    }
+    // La avería ocurre donde está la unidad en este momento de la simulación
+    const ubic = unidad.ubicacionActual
+      ? parseUbicacion(`(${unidad.ubicacionActual.posX},${unidad.ubicacionActual.posY})`)
+      : null;
+    if (!ubic) {
+      setAvisoAveria({ ok: false, texto: 'No se conoce la ubicación actual de la unidad.' });
+      return;
+    }
+
+    setRegistrandoAveria(true);
+    setAvisoAveria(null);
+    try {
+      const registrada = await averiasApi.registrar({ idUnidad: unidad.codigo, ubicacion: ubic, tipo: tipoAveria });
+      setAvisoAveria({
+        ok: true,
+        texto: registrada.horaReincorporacion
+          ? `Avería registrada en ${unidad.codigo}. Vuelve el ${formatFechaHora(registrada.horaReincorporacion)}.`
+          : `Avería registrada en ${unidad.codigo}.`,
+      });
+      setUnidadAveria('');
+      setTipoAveria('TIPO_1');
+    } catch {
+      setAvisoAveria({ ok: false, texto: 'No se pudo registrar la avería. Inténtalo de nuevo.' });
+    } finally {
+      setRegistrandoAveria(false);
+    }
+  };
 
   const toggleSection = (section: string) => {
     setExpandedSection(prev => (prev === section ? null : section));
@@ -58,30 +124,71 @@ export const RightPanel: React.FC<RightPanelProps> = ({ reloj, almacenes, unidad
   );
 
   return (
-    <div className="w-80 flex-shrink-0 space-y-3 overflow-y-auto max-h-screen pr-2 scrollbar-thin">
+    <div className="w-80 h-full flex-shrink-0 space-y-3 overflow-y-auto pr-2 scrollbar-thin">
       {metricas.instanteColapso && (
         <div className="bg-red-50 border border-red-300 rounded-xl p-3 text-center mb-2">
           <div className="flex items-center justify-center gap-2 text-red-700 font-bold text-sm">
             <AlertTriangle size={16} /> Colapso logístico
           </div>
           <p className="text-xs text-red-600 mt-1">
-            Un pedido incumplió su plazo. Simulación detenida
-            {typeof metricas.volumenPedidosColapso === 'number' && (
-              <> con {metricas.volumenPedidosColapso} pedido(s) activos en ese instante.</>
-            )}
+            {metricas.volumenPedidosColapso ?? 1} pedido{(metricas.volumenPedidosColapso ?? 1) !== 1 ? 's' : ''} ya no pueden garantizarse dentro de su plazo.<br/>
+            <strong>Simulación detenida</strong>
           </p>
         </div>
       )}
 
-      <div className="bg-(--color-brand-100) rounded-xl shadow-sm border border-(--color-brand-500)/30 p-3 flex flex-col items-center justify-center mb-4">
-        <div className="flex items-center text-(--color-brand-700) font-bold mb-1">
-          <Calendar size={16} className="mr-2" /> Fecha actual
+      {/* Registrar avería (siempre visible; las averías se registran manualmente durante la simulación) */}
+      <div className="bg-white rounded-xl shadow-sm border border-(--color-line-200) p-4 mb-2 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-(--color-ink-900)">
+          <Wrench size={16} className="text-(--color-brand-500)" /> Registrar avería
         </div>
-        <div className="text-(--color-brand-700) text-sm">
-          {reloj.instanteActual
-            ? new Date(reloj.instanteActual).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-            : '—'}
-        </div>
+
+        <label className="block">
+          <span className="block text-xs font-semibold text-(--color-ink-500) mb-1">Unidad</span>
+          <input
+            type="text"
+            value={unidadAveria}
+            onChange={(e) => { setUnidadAveria(e.target.value); setAvisoAveria(null); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') registrarAveria(); }}
+            placeholder={`Ej. ${ejemploUnidad}`}
+            disabled={registrandoAveria}
+            className={selectBase}
+          />
+        </label>
+
+        <label className="block">
+          <span className="block text-xs font-semibold text-(--color-ink-500) mb-1">Tipo de avería</span>
+          <select
+            value={tipoAveria}
+            onChange={(e) => setTipoAveria(e.target.value as TipoAveria)}
+            disabled={registrandoAveria}
+            className={selectBase}
+          >
+            {TIPOS_AVERIA.map(t => (
+              <option key={t.valor} value={t.valor}>{t.etiqueta}</option>
+            ))}
+          </select>
+        </label>
+
+        <p className="text-[11px] text-(--color-ink-400)">
+          Se registra en la ubicación actual de la unidad y con la hora de la simulación.
+        </p>
+
+        <button
+          type="button"
+          onClick={registrarAveria}
+          disabled={!unidadAveria.trim() || registrandoAveria}
+          className="w-full flex items-center justify-center gap-2 rounded-lg bg-(--color-brand-500) hover:bg-(--color-brand-600) disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 text-sm transition-colors"
+        >
+          {registrandoAveria ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {registrandoAveria ? 'Registrando...' : 'Registrar avería'}
+        </button>
+
+        {avisoAveria && (
+          <p className={`text-xs rounded-md px-2.5 py-2 ${avisoAveria.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+            {avisoAveria.texto}
+          </p>
+        )}
       </div>
 
       <Accordion title="Resumen de pedidos" id="resumen">
