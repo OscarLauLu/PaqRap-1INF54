@@ -27,9 +27,9 @@ const inputUmbral =
 export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => {
   const [escenario, setEscenario] = useState<TipoEscenario>('DIA_A_DIA');
 
-  // Fecha y hora de inicio de la simulación (se envían al backend en configurar)
-  const [fechaInicio, setFechaInicio] = useState('2026-09-01');
-  const [horaInicio, setHoraInicio] = useState('00:00');
+// Sin valores por defecto: el usuario debe elegir la fecha y la hora de inicio de forma explícita
+  const [fechaInicio, setFechaInicio] = useState('');
+  const [horaInicio, setHoraInicio] = useState('');
 
   const [horasVerde, setHorasVerde] = useState(12);
   const [horasAmbar, setHorasAmbar] = useState(4);
@@ -47,6 +47,37 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
   const iniciar = async () => {
     setIniciando(true);
     setError(null);
+        // La operación día a día ya está siempre encendida en su backend: solo se va a su pantalla
+        // La operación día a día se (re)inicia en SU backend con la fecha y hora elegidas.
+    // Se llama directo a /api (sin /sim) para que vaya siempre al backend de operación,
+    // aunque esta pantalla de Configuración use el de simulación.
+    if (escenario === 'DIA_A_DIA') {
+      try {
+        if (!fechaInicio || !horaInicio) {
+          setError('Ingresa la fecha y la hora de inicio.');
+          return;
+        }
+        if (horasAmbar >= horasVerde) {
+          setError('El umbral Ámbar debe ser menor que el umbral Verde.');
+          return;
+        }
+        await fetch(`/api/mapa/semaforo?horasVerde=${horasVerde}&horasAmbar=${horasAmbar}`, { method: 'PUT' });
+        const configurado = await fetch('/api/simulacion/configurar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...FLOTA_POR_DEFECTO, fechaHoraInicio: `${fechaInicio}T${horaInicio}:00` }),
+        });
+        if (!configurado.ok) throw new Error();
+        const iniciado = await fetch('/api/simulacion/iniciar?escenario=DIA_A_DIA', { method: 'POST' });
+        if (!iniciado.ok) throw new Error();
+        onSimulacionIniciada(escenario);
+      } catch {
+        setError('No se pudo iniciar la operación día a día. Verifica el backend e inténtalo de nuevo.');
+      } finally {
+        setIniciando(false);
+      }
+      return;
+    }
     try {
       if (!fechaInicio || !horaInicio) {
         setError('Ingresa la fecha y la hora de inicio.');
