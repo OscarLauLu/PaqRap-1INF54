@@ -1,5 +1,5 @@
-import React from 'react';
-import { Search, Bell } from 'lucide-react';
+import React from "react";
+import { Search, Bell } from "lucide-react";
 
 interface HeaderProps {
   onFinalizarSimulacion: () => void;
@@ -14,9 +14,9 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   onFinalizarSimulacion,
   totalAlertas = 0,
-  userName = 'Jones Ferdinand',
+  userName = "Jones Ferdinand",
   isSimulating = true,
-  title = 'Simulación 5D',
+  title = "Simulación 5D",
   subtitle,
   showFinalizar = true,
 }) => {
@@ -24,8 +24,12 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="h-16 bg-white border-b border-gray-200 px-8 flex items-center justify-between">
       {/* Title */}
       <div>
-        <h1 className="text-xl font-bold text-gray-800 tracking-tight leading-tight">{title}</h1>
-        {subtitle && <p className="text-xs text-gray-400 leading-tight">{subtitle}</p>}
+        <h1 className="text-xl font-bold text-gray-800 tracking-tight leading-tight">
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="text-xs text-gray-400 leading-tight">{subtitle}</p>
+        )}
       </div>
 
       {/* Right controls */}
@@ -36,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onFinalizarSimulacion}
             className="bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-medium px-5 py-2 rounded-lg text-sm shadow-sm shadow-red-300 transition-all flex items-center gap-2 cursor-pointer"
           >
-            {isSimulating ? 'Finalizar Simulación' : 'Simulación Detenida'}
+            Finalizar Simulación
           </button>
         )}
 

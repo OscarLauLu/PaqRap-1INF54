@@ -1,6 +1,7 @@
 services:
   # ----------------------------------------------------------------------------
-  # Servidor Web Spring Boot (API REST + Swagger UI en puerto 8080)
+  # Backend de OPERACIÓN (Operación día a día, siempre encendida) - puerto 8080
+  # Tiene su propia base de datos en memoria (H2), separada de la simulación.
   # ----------------------------------------------------------------------------
   app:
     build:
@@ -11,8 +12,28 @@ services:
       - "8080:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=default
+      - PAQRAP_MODO=OPERACION
     volumes:
       # Monta la carpeta datos para leer archivos en tiempo real sin reconstruir
+      - ./datos:/app/datos:ro
+    command: ["web"]
+
+  # ----------------------------------------------------------------------------
+  # Backend de SIMULACIÓN (Simulación 5D y colapso) - puerto 8081
+  # Es el mismo código, pero otra instancia: su motor, su ACO y su base de datos
+  # son independientes, así una simulación nunca afecta a la operación diaria.
+  # ----------------------------------------------------------------------------
+  app-simulacion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paqrap-app-simulacion
+    ports:
+      - "8081:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=default
+      - PAQRAP_MODO=SIMULACION
+    volumes:
       - ./datos:/app/datos:ro
     command: ["web"]
 
@@ -33,6 +54,7 @@ services:
       - /app/node_modules # Evita sobreescribir los módulos de Node instalados en Docker
     depends_on:
       - app
+      - app-simulacion
 
   # ----------------------------------------------------------------------------
   # Servicio para ejecutar el Benchmark de Algoritmos Metaheurísticos en Java
