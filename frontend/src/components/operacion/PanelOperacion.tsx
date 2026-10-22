@@ -131,7 +131,7 @@ export const PanelOperacion: React.FC<Props> = ({ reloj, almacenes, unidades, pe
       <Seccion titulo="Stock de almacenes">
         <div className="space-y-2 text-xs">
           {almacenes.map((alm) => (
-            <div key={alm.id} className="border border-blue-300 rounded-lg px-3 py-2 flex justify-between items-center text-gray-500 font-medium">
+            <div key={alm.codigo} className="border border-blue-300 rounded-lg px-3 py-2 flex justify-between items-center text-gray-500 font-medium">
               <span>{alm.nombre}</span>
               {alm.tipo === 'CENTRAL' ? (
                 <span className="text-blue-600 font-semibold"><span className="text-base mr-1">∞</span>Ilimitado</span>

@@ -52,7 +52,13 @@ public class AlmacenService {
 
     @Transactional(readOnly = true)
     public List<MovimientoInventarioDTO> obtenerHistorial(String almacenId, int dias) {
-        LocalDateTime corte = LocalDateTime.now().minusDays(dias > 0 ? dias : 5);
+        if (!almacenRepository.existsById(almacenId)) {
+            throw new ResourceNotFoundException("Almacen", "id", almacenId);
+        }
+        if (dias <= 0) {
+            throw new IllegalArgumentException("El parámetro 'dias' debe ser un entero positivo mayor a 0.");
+        }
+        LocalDateTime corte = LocalDateTime.now().minusDays(dias);
         return movimientoRepository.findByAlmacenCodigoAndFechaHoraBetweenOrderByFechaHoraDesc(
                 almacenId, corte, LocalDateTime.now()).stream()
                 .map(this::mapearMovimientoADTO)
@@ -82,13 +88,21 @@ public class AlmacenService {
      */
     @Transactional
     public MovimientoInventarioDTO cargarInventario(String almacenId, int cantidad) {
+        if (cantidad <= 0) {
+            throw new IllegalArgumentException("La cantidad a cargar debe ser un número entero mayor a 0.");
+        }
+
         Almacen a = almacenRepository.findById(almacenId)
                 .orElseThrow(() -> new ResourceNotFoundException("Almacen", "id", almacenId));
+
+        if (a instanceof AlmacenCentral) {
+            throw new IllegalArgumentException("El almacén central tiene inventario ilimitado y no admite carga manual (RF-19, CP-ALM-028).");
+        }
 
         if (a instanceof AlmacenIntermedio) {
             AlmacenIntermedio inter = (AlmacenIntermedio) a;
             if (inter.getStockActual() + cantidad > inter.getCapacidadMaxima()) {
-                throw new BusinessException("Operación rechazada: El stock resultante ("
+                throw new IllegalArgumentException("Operación rechazada: El stock resultante ("
                         + (inter.getStockActual() + cantidad) + ") excede la capacidad máxima de "
                         + inter.getCapacidadMaxima() + " unidades (RF-19).");
             }
