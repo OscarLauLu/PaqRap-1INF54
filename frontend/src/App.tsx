@@ -5,10 +5,10 @@ import { MapaOperaciones } from './components/mapa/MapaOperaciones';
 import { RightPanel } from './components/panel/RightPanel';
 import { RegistroPage } from './components/registro/RegistroPage';
 import { ConfiguracionPage } from './components/configuracion/ConfiguracionPage';
-import { OperacionDiariaPage } from './components/operacion/OperacionDiariaPage';
-import { PantallaPendiente } from './components/simulacion/PantallaPendiente';
 import { ReportePage } from './components/reportes/ReportePage';
 import { Play, Pause, Square, ChevronLeft, ChevronRight } from 'lucide-react';
+import { setBackend } from './api/client';
+import { simulacionApi } from './api/simulacionApi';
 
 import { useAlmacenes } from './hooks/useAlmacenes';
 import { useSimulacion } from './hooks/useSimulacion';
@@ -118,7 +118,10 @@ export const App: React.FC = () => {
           }
         }
         const puntos = camino.slice(inicio);
-        return puntos.length >= 2 ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true } : null;
+        // caminoCompleto: el mapa anima al vehículo recorriendo este camino, para que no cruce manzanas en diagonal
+        return puntos.length >= 2
+          ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true, caminoCompleto: camino }
+          : null;
       }
 
       // Si no llegó camino, se une el vehículo con sus paradas pendientes para no perder la ruta
@@ -130,8 +133,19 @@ export const App: React.FC = () => {
 
   // Configuración elegida (se recuerda al recargar la página)
   const [escenarioSel, setEscenarioSel] = usePersistente<Escenario>('paqrap.escenarioSel', 'DIA_A_DIA', esEscenario);
-  const [fechaInicio, setFechaInicio] = usePersistente<string>('paqrap.fechaInicio', '2026-08-11');
-  const [horaInicio, setHoraInicio] = usePersistente<string>('paqrap.horaInicio', '06:00');
+
+  // Cada pantalla le habla a su propio backend: Registro y Operación día a día al de operación;
+  // Configuración, Simulación 5D, Colapso y Reportes al de simulación
+  const backend =
+    activeSection === 'registro' || (activeSection === 'simulacion' && escenarioSel === 'DIA_A_DIA')
+      ? 'operacion'
+      : 'simulacion';
+  setBackend(backend);
+
+  // La Operación día a día usa la misma pantalla y los mismos controles que las simulaciones.
+  // Diferencias: no tiene botón rojo Finalizar, su ■ solo la detiene (no lleva a Reportes,
+  // que muestran las simulaciones) y su panel tiene menos tarjetas
+  const esOperacion = escenarioSel === 'DIA_A_DIA';
 
   // Panel derecho de la simulación: se puede ocultar para que el mapa ocupe más espacio
   const [panelAbierto, setPanelAbierto] = usePersistente<boolean>(
@@ -140,9 +154,8 @@ export const App: React.FC = () => {
     (v) => typeof v === 'boolean',
   );
 
-  // El backend tiene UN solo motor y sus datos (vehículos, pedidos, stock) pertenecen
-  // al ÚLTIMO escenario que lo inició, aunque ya haya terminado o se haya detenido.
-  // Recordamos cuál fue (el backend todavía no lo informa en /api/simulacion/reloj).
+  // El backend de simulación tiene UN solo motor y sus datos pertenecen al ÚLTIMO escenario
+  // que lo inició (5D o colapso). Recordamos cuál fue.
   const [escenarioMotor, setEscenarioMotor] = usePersistente<Escenario | null>(
     'paqrap.escenarioMotor',
     null,
@@ -158,9 +171,9 @@ export const App: React.FC = () => {
   const escenarioBackend = (reloj as RelojSimuladoData & { escenario?: string | null }).escenario;
   const duenoDatos: Escenario | null = esEscenario(escenarioBackend) ? escenarioBackend : escenarioMotor;
 
-  // Una pantalla solo muestra datos si son de SU escenario. Si el motor está activo y no se sabe
-  // quién lo inició (p. ej. se limpió el navegador), tampoco se muestran.
-  const sinDatos = (duenoDatos !== null && duenoDatos !== escenarioSel) || (motorActivo && duenoDatos === null);
+  // Una pantalla de simulación solo muestra datos si son de SU escenario (5D o colapso).
+  // La operación tiene su propio backend, así que nunca está "ocupada" por otro escenario.
+  const sinDatos = backend !== 'operacion' && ((duenoDatos !== null && duenoDatos !== escenarioSel) || (motorActivo && duenoDatos === null));
   const ocupadoPor = duenoDatos ? NOMBRE_ESCENARIO[duenoDatos] : null;
 
   const arrancar = async (escenario: Escenario) => {
@@ -185,19 +198,21 @@ export const App: React.FC = () => {
     }
   };
 
-  // Detener el motor (comportamiento anterior, se mantiene para la pantalla de Operación día a día).
-  const detenerMotor = async () => {
+  // Finalizar: termina la simulación y lleva a la página de Reportes.
+  const terminar = async () => {
+    // Se espera como máximo 3 segundos a que el backend confirme que terminó;
+    // pase lo que pase, después se va a Reportes para que el botón nunca parezca no responder
+    await Promise.race([finalizarSimulacion(), new Promise((resolver) => setTimeout(resolver, 3000))]);
+    setActiveSection('reportes');
+  };
+
+  // ■ en la operación diaria: la detiene y se queda en la pantalla (▶ la vuelve a iniciar)
+  const detenerOperacion = async () => {
     try {
       await detener();
     } catch {
       // Si falla, el estado real lo trae el reloj en la próxima consulta.
     }
-  };
-
-  // Finalizar: termina la simulación y lleva a la página de Reportes.
-  const terminar = async () => {
-    await finalizarSimulacion();
-    setActiveSection('reportes');
   };
 
   const irASimulacion = (escenario: Escenario) => {
@@ -244,7 +259,7 @@ export const App: React.FC = () => {
           userName="Jones Ferdinand"
           title={titulos[activeSection].title}
           subtitle={titulos[activeSection].subtitle}
-          showFinalizar={activeSection === 'simulacion'}
+          showFinalizar={activeSection === 'simulacion' && !esOperacion}
         />
 
         {activeSection === 'registro' && <RegistroPage />}
@@ -259,48 +274,44 @@ export const App: React.FC = () => {
 
         {activeSection === 'reportes' && <ReportePage />}
 
+        {/* Una sola pantalla para la Operación día a día y para las simulaciones (5D y colapso) */}
         {activeSection === 'simulacion' && (
-          escenarioSel === 'DIA_A_DIA' ? (
-            <OperacionDiariaPage
-              reloj={reloj}
-              almacenes={almacenes}
-              unidades={unidades}
-              pedidos={pedidos}
-              selectedUnidadId={selectedUnidadCodigo}
-              onSelectUnidad={setSelectedUnidadCodigo}
-              sinDatos={sinDatos}
-              ocupadoPor={ocupadoPor}
-              onIniciar={() => arrancar('DIA_A_DIA')}
-              onDetener={detenerMotor}
-              onFinalizar={terminar}
-            />
-          ) : (
-            <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
-              {/* Barra superior (sin tarjeta: va directo sobre el fondo, como el mockup) */}
-              <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-sm">
-                <div className="flex flex-wrap items-center gap-x-10 gap-y-2">
-                  <div className="text-(--color-ink-400) font-semibold">
-                    Fecha: <span className="text-(--color-ink-900) font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
-                  </div>
-                  <div className="flex items-center text-(--color-ink-400) font-semibold">
-                    <ClockIcon className="w-4 h-4 mr-1.5" /> Tiempo transcurrido:
-                    <span className="text-(--color-ink-900) font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
-                  </div>
-                  <div className="text-(--color-ink-400) font-semibold">
-                    Día: <span className="text-(--color-ink-900) font-bold ml-1">{diaActual}</span>
-                  </div>
-                  {estaPausada && !sinDatos && (
-                    <span className="rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-700">
-                      En pausa
-                    </span>
-                  )}
+          <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
+            {/* Barra superior (sin tarjeta: va directo sobre el fondo, como el mockup) */}
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-sm">
+              <div className="flex flex-wrap items-center gap-x-10 gap-y-2">
+                <div className="text-(--color-ink-400) font-semibold">
+                  Fecha: <span className="text-(--color-ink-900) font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
                 </div>
 
+                <div className="flex items-center text-(--color-ink-400) font-semibold">
+                  <ClockIcon className="w-4 h-4 mr-1.5" /> Tiempo transcurrido:
+                  <span className="text-(--color-ink-900) font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
+                </div>
+                <div className="text-(--color-ink-400) font-semibold">
+                  Día: <span className="text-(--color-ink-900) font-bold ml-1">{diaActual}</span>
+                </div>
+                {/* La operación diaria corriendo se marca "En vivo"; cualquier escenario en pausa, "En pausa" */}
+                {esOperacion && motorCorriendo && (
+                  <span className="flex items-center gap-1.5 rounded-full bg-green-50 border border-green-200 px-2.5 py-0.5 text-xs font-bold text-green-700">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" aria-hidden="true" />
+                    En vivo
+                  </span>
+                )}
+                {estaPausada && !sinDatos && (
+                  <span className="rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-700">
+                    En pausa
+                  </span>
+                )}
+              </div>
+
+              {/* Controles ▶ ⏸ ■ y velocidad: en la operación diaria y en las simulaciones */}
+              {(
                 <div className="flex items-center gap-2">
                   {sinDatos && (
                     <span className="text-xs font-semibold text-amber-600 mr-2">
                       {motorActivo
-                        ? `El motor está ocupado con ${ocupadoPor ?? 'otro escenario'}, por eso aquí no se muestran datos.`
+                        ? `El motor de simulación está ocupado con ${ocupadoPor ?? 'otro escenario'}, por eso aquí no se muestran datos.`
                         : `Los datos actuales son de ${ocupadoPor ?? 'otra simulación'}, por eso aquí no se muestran. Presiona ▶ para iniciar.`}
                     </span>
                   )}
@@ -327,12 +338,12 @@ export const App: React.FC = () => {
                     <Pause size={16} fill="currentColor" />
                   </button>
 
-                  {/* ■ Finaliza y lleva a Reportes */}
+                  {/* ■ Simulación: finaliza y lleva a Reportes · Operación diaria: solo la detiene */}
                   <button
-                    onClick={terminar}
+                    onClick={esOperacion ? detenerOperacion : terminar}
                     disabled={!motorActivo}
-                    title="Finalizar simulación"
-                    aria-label="Finalizar simulación"
+                    title={esOperacion ? 'Detener la operación diaria' : 'Finalizar simulación'}
+                    aria-label={esOperacion ? 'Detener la operación diaria' : 'Finalizar simulación'}
                     className={botonControl}
                   >
                     <Square size={16} fill="currentColor" />
@@ -340,7 +351,13 @@ export const App: React.FC = () => {
 
                   <select
                     value={speed}
-                    onChange={(e) => setSpeed(e.target.value)}
+                    onChange={(e) => {
+                      setSpeed(e.target.value);
+                      // Multiplica la velocidad propia del escenario (por ejemplo, 2× la 5D = 300×)
+                      simulacionApi.cambiarVelocidad(Number(e.target.value)).catch(() => {
+                        /* si falla, la velocidad real se mantiene y el reloj lo refleja */
+                      });
+                    }}
                     aria-label="Velocidad de la simulación"
                     className="h-9 bg-white border border-(--color-brand-500) text-(--color-ink-900) rounded-md px-2 text-sm font-bold outline-none"
                   >
@@ -349,11 +366,12 @@ export const App: React.FC = () => {
                     <option value="2">2.0×</option>
                   </select>
                 </div>
-              </div>
+              )}
+            </div>
 
-              {/* El mapa mantiene su tamaño. Al abrir el panel, mapa y panel se corren juntos
-                  a la izquierda (el borde izquierdo del mapa sale de la vista); al cerrarlo, vuelven. */}
-              <div className="flex-1 min-h-0">
+            {/* El mapa mantiene su tamaño. Al abrir el panel, mapa y panel se corren juntos
+                a la izquierda (el borde izquierdo del mapa sale de la vista); al cerrarlo, vuelven. */}
+            <div className="flex-1 min-h-0">
               <div className="relative h-full overflow-hidden rounded-xl">
                 <div
                   className={`absolute inset-0 flex transition-transform duration-300 ease-in-out ${
@@ -371,10 +389,12 @@ export const App: React.FC = () => {
                       selectedUnidadCodigo={selectedUnidadCodigo}
                       onSelectUnidad={setSelectedUnidadCodigo}
                       escenario={NOMBRE_ESCENARIO[escenarioSel]}
+                      pausado={estaPausada}
+                      mostrarPorAtender={esOperacion}
                     />
                   </div>
 
-                  {/* Panel derecho: queda a la derecha del mapa, fuera de vista cuando está cerrado */}
+                  {/* Panel derecho: en la operación diaria muestra menos tarjetas */}
                   <div className="w-80 h-full shrink-0 ml-4" aria-hidden={!panelAbierto}>
                     <RightPanel
                       reloj={reloj}
@@ -383,6 +403,7 @@ export const App: React.FC = () => {
                       pedidos={sinDatos ? [] : pedidos}
                       metricas={metricas}
                       selectedUnidadCodigo={selectedUnidadCodigo}
+                      modo={esOperacion ? 'operacion' : 'simulacion'}
                     />
                   </div>
                 </div>
@@ -400,9 +421,8 @@ export const App: React.FC = () => {
                   {panelAbierto ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
                 </button>
               </div>
-              </div>
-            </main>
-          )
+            </div>
+          </main>
         )}
       </div>
     </div>
