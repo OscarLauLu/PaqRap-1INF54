@@ -26,16 +26,25 @@ public class RedVialService {
     private final CargadorArchivos cargadorArchivos;
 
     public Nodo obtenerNodo(int x, int y) {
+        if (x < 0 || x > 70 || y < 0 || y > 50) {
+            throw new IllegalArgumentException("Coordenadas (" + x + "," + y + ") fuera del rango de la retícula 70x50 km.");
+        }
         return redVial.obtenerNodo(x, y);
     }
 
     public double calcularDistancia(int x1, int y1, int x2, int y2) {
+        if (x1 < 0 || x1 > 70 || y1 < 0 || y1 > 50 || x2 < 0 || x2 > 70 || y2 < 0 || y2 > 50) {
+            throw new IllegalArgumentException("Coordenadas fuera del rango permitido de la retícula (0..70, 0..50).");
+        }
         Nodo o = redVial.obtenerNodo(x1, y1);
         Nodo d = redVial.obtenerNodo(x2, y2);
         return redVial.calcularDistancia(o, d);
     }
 
     public List<Tramo> calcularRutaMinima(int x1, int y1, int x2, int y2, LocalDateTime instante) {
+        if (x1 < 0 || x1 > 70 || y1 < 0 || y1 > 50 || x2 < 0 || x2 > 70 || y2 < 0 || y2 > 50) {
+            throw new IllegalArgumentException("Coordenadas fuera del rango permitido de la retícula (0..70, 0..50).");
+        }
         Nodo o = redVial.obtenerNodo(x1, y1);
         Nodo d = redVial.obtenerNodo(x2, y2);
         return redVial.calcularRutaMinima(o, d, instante != null ? instante : LocalDateTime.now());

@@ -23,11 +23,17 @@ interface RightPanelProps {
   pedidos: Pedido[];
   metricas: MetricasSimulacion;
   selectedUnidadCodigo: string | null;
+  /**
+   * 'operacion': panel de la Operación día a día (registro de avería, resumen, vehículos, stock, incidencias y costo).
+   * 'simulacion' (por defecto): además muestra el detalle de vehículos y pedidos.
+   */
+  modo?: 'operacion' | 'simulacion';
 }
 
 const formatSoles = (valor: number) => `S/ ${valor.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, selectedUnidadCodigo }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, selectedUnidadCodigo, modo = 'simulacion' }) => {
+  const esOperacion = modo === 'operacion';
   const [expandedSection, setExpandedSection] = useState<string | null>('resumen');
 
   // --- Registro de avería durante la simulación ---
@@ -131,12 +137,15 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
             <AlertTriangle size={16} /> Colapso logístico
           </div>
           <p className="text-xs text-red-600 mt-1">
-            {metricas.volumenPedidosColapso ?? 1} pedido{(metricas.volumenPedidosColapso ?? 1) !== 1 ? 's' : ''} ya no pueden garantizarse dentro de su plazo.<br/>
-            <strong>Simulación detenida</strong>
+            Un pedido incumplió su plazo. Simulación detenida
+            {typeof metricas.volumenPedidosColapso === 'number' && (
+              <> con {metricas.volumenPedidosColapso} pedido(s) activos en ese instante.</>
+            )}
           </p>
         </div>
       )}
 
+      {/* Registrar avería: en la operación diaria y en las simulaciones, porque las averías ocurren en plena marcha */}
       {/* Registrar avería (siempre visible; las averías se registran manualmente durante la simulación) */}
       <div className="bg-white rounded-xl shadow-sm border border-(--color-line-200) p-4 mb-2 space-y-3">
         <div className="flex items-center gap-2 text-sm font-bold text-(--color-ink-900)">
@@ -190,6 +199,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
           </p>
         )}
       </div>
+
 
       <Accordion title="Resumen de pedidos" id="resumen">
         <div className="space-y-3">
@@ -281,6 +291,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
         </div>
       </Accordion>
 
+      {/* El detalle de vehículo y pedido solo se muestra en las simulaciones */}
+      {!esOperacion && (
+        <>
       <Accordion title="Detalles del vehículo" id="detalle_vehiculo">
         {selectedUnidad ? (
           <div className="text-xs text-(--color-ink-500) space-y-2">
@@ -309,6 +322,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
       <Accordion title="Detalles de pedido" id="detalle_pedido">
         <div className="text-xs text-(--color-ink-400) text-center py-2">Selecciona un pedido en el mapa</div>
       </Accordion>
+        </>
+      )}
     </div>
   );
 };

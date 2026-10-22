@@ -19,11 +19,13 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -102,6 +104,20 @@ public class MotorSimulacion {
 
     private LocalDateTime instanteInicioEjecucionReal;
 
+    // Modo de esta instancia del backend: OPERACION (operación día a día, siempre encendida)
+    // o SIMULACION (5D y colapso). Se define con la variable PAQRAP_MODO en docker-compose.
+    // Por defecto SIMULACION, para que fuera de Docker todo funcione como antes.
+    @Value("${paqrap.modo:SIMULACION}")
+    private String modo;
+
+    // Último bloque de tiempo simulado en el que se planificó: evita planificar muchas veces dentro
+    // del mismo minuto en tiempo real (a 1x, el minuto 0 dura 60 s y el ciclo pasa por él 120 veces)
+    private LocalDateTime ultimaHoraPlanificada;
+
+    public boolean esModoOperacion() {
+        return "OPERACION".equalsIgnoreCase(modo);
+    }
+
     /**
      * Configura los parámetros iniciales de la simulación (RF-64).
      */
@@ -127,7 +143,9 @@ public class MotorSimulacion {
      * Inicia la ejecución de uno de los 3 escenarios soportados (RF-65, RF-66, RF-67).
      */
     public ResultadoSimulacion ejecutar(TipoEscenario escenario) {
-        if (parametros == null || pedidosProgramados.isEmpty()) {
+        // En modo operación no se cargan los archivos de ejemplo de septiembre: los pedidos
+        // entran por el módulo de Registro, como en la operación real de la empresa
+        if (!esModoOperacion() && (parametros == null || pedidosProgramados.isEmpty())) {
             // Auto-load default data files if no prior configuration
             LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
             ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
@@ -136,13 +154,32 @@ public class MotorSimulacion {
             if (!datosDir.exists()) {
                 datosDir = new java.io.File("../datos");
             }
-            
+
             defaultParams.setArchivoPedidos(new java.io.File(datosDir, "ventas.v20260909/ventas.202609.txt").getAbsolutePath());
             defaultParams.setArchivoBloqueos(new java.io.File(datosDir, "bloqueos/bloqueo.2609.txt").getAbsolutePath());
             defaultParams.setFechaHoraInicio(fechaElegida);
             configurar(defaultParams);
             log.info("Auto-configurado con archivos por defecto: {} pedidos, {} bloqueos",
                     pedidosProgramados.size(), bloqueosProgramados.size());
+        }
+
+        // Si quedó una corrida anterior activa, se detiene su ciclo antes de empezar la nueva
+        if (executorService != null && !executorService.isShutdown()) {
+            executorService.shutdownNow();
+        }
+
+        // Las rutas de corridas anteriores que quedaron sin completar se cierran, porque si no el
+        // ciclo las sigue procesando cada medio segundo y la simulación se vuelve cada vez más lenta
+        try {
+            transactionTemplate.executeWithoutResult(status ->
+                    rutaRepository.findAll().stream()
+                            .filter(r -> r.getEstado() != EstadoRuta.COMPLETADA)
+                            .forEach(r -> {
+                                r.setEstado(EstadoRuta.COMPLETADA);
+                                rutaRepository.save(r);
+                            }));
+        } catch (Exception e) {
+            log.warn("No se pudieron cerrar las rutas de corridas anteriores: {}", e.getMessage());
         }
 
         this.estado = EstadoEjecucion.EN_EJECUCION;
@@ -163,7 +200,8 @@ public class MotorSimulacion {
         this.averiasOcurridas = 0;
         this.instanteColapsoDetectado = null;
         this.volumenPedidosColapsoDetectado = null;
-        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null)? parametros.getFechaHoraInicio(): LocalDateTime.of(2026, 9, 1, 0, 0, 0);
+        this.ultimaHoraPlanificada = null;
+        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null) ? parametros.getFechaHoraInicio() : LocalDateTime.of(2026, 9, 1, 0, 0, 0);
         double factorAceleracion;
         switch (escenario) {
             case DIA_A_DIA:
@@ -181,12 +219,20 @@ public class MotorSimulacion {
         }
         reloj.inicializar(inicioSim, factorAceleracion);
 
+        // Solo entran a la simulación los pedidos registrados DESDE la fecha de inicio elegida.
+        // Si se inicia, por ejemplo, el 02/09 a las 08:00, los pedidos del 01/09 no son parte de esta
+        // corrida: si entraran todos de golpe (y con el plazo vencido), el ACO tendría que planificar
+        // cientos de pedidos a la vez y el motor se quedaría trabado sin avanzar el reloj.
+        final LocalDateTime desde = inicioSim;
+        int totalAntes = pedidosProgramados.size();
+        pedidosProgramados = new ArrayList<>(pedidosProgramados);
+        pedidosProgramados.removeIf(p -> p.getFechaHoraRegistro() != null && p.getFechaHoraRegistro().isBefore(desde));
+        log.info("Pedidos considerados desde {}: {} (se omitieron {} anteriores al inicio)",
+                desde, pedidosProgramados.size(), totalAntes - pedidosProgramados.size());
+
         log.info("Iniciando escenario [{}] con aceleración {}", escenario.getDescripcion(), factorAceleracion);
 
         // Arrancar ciclo periódico de simulación
-        if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdownNow();
-        }
         executorService = Executors.newSingleThreadScheduledExecutor();
         executorService.scheduleAtFixedRate(() -> {
             if (estado != EstadoEjecucion.EN_EJECUCION) return;
@@ -204,6 +250,9 @@ public class MotorSimulacion {
                 log.error("Error procesando eventos en instante {}: {}", instanteActual, e.getMessage());
             }
 
+            // Si se pidió detener mientras se procesaba, no se sigue con el resto del ciclo
+            if (estado != EstadoEjecucion.EN_EJECUCION) return;
+
             // --- Transacción 2: Movimientos de flota y entregas ---
             try {
                 transactionTemplate.executeWithoutResult(status -> {
@@ -213,9 +262,18 @@ public class MotorSimulacion {
                 log.error("Error en movimientos de flota en instante {}: {}", instanteActual, e.getMessage());
             }
 
-            // --- Transacción 3: Planificación de rutas cada hora simulada ---
+            if (estado != EstadoEjecucion.EN_EJECUCION) return;
+
+            // --- Transacción 3: Planificación de rutas, una vez por bloque de tiempo simulado ---
+            // Simulación: cada hora simulada (a 150x pasa en ~24 s reales).
+            // Operación: cada 5 minutos, porque corre en tiempo real y un pedido recién registrado
+            // no puede esperar hasta una hora para recibir su ruta. También planifica al arrancar.
             try {
-                if (instanteActual.getMinute() == 0) {
+                LocalDateTime bloqueActual = esModoOperacion()
+                        ? instanteActual.truncatedTo(ChronoUnit.MINUTES).withMinute(instanteActual.getMinute() / 5 * 5)
+                        : instanteActual.truncatedTo(ChronoUnit.HOURS);
+                if (ultimaHoraPlanificada == null || bloqueActual.isAfter(ultimaHoraPlanificada)) {
+                    ultimaHoraPlanificada = bloqueActual;
                     transactionTemplate.executeWithoutResult(status -> {
                         List<Ruta> nuevasRutas = planificador.ejecutarCicloPlanificacion(instanteActual);
                         registrarCostosYRutas(nuevasRutas);
@@ -325,7 +383,7 @@ public class MotorSimulacion {
         List<Ruta> rutasActivas = rutaRepository.findAll();
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
-            
+
             // Marcar como en ejecución si estaba planificada
             if (r.getEstado() == EstadoRuta.PLANIFICADA) {
                 r.setEstado(EstadoRuta.EN_EJECUCION);
@@ -335,11 +393,13 @@ public class MotorSimulacion {
             for (com.paqrap.logistics.planificacion.model.ParadaRuta p : r.getParadas()) {
                 if (!p.isEntregada()) {
                     todasEntregadas = false;
-                    log.info("Ruta {} Unidad {}: Evaluando parada. Instante={}, HoraEstimadaLlegada={}", 
+                    // En debug y no en info: se ejecuta por cada ruta cada medio segundo y en info
+                    // llenaba los logs de miles de líneas, lo que ralentizaba todo el backend
+                    log.debug("Ruta {} Unidad {}: Evaluando parada. Instante={}, HoraEstimadaLlegada={}",
                             r.getId(), r.getUnidadTransporte().getCodigo(), instante, p.getHoraEstimadaLlegada());
-                            
+
                     if (p.getHoraEstimadaLlegada() != null && !instante.isBefore(p.getHoraEstimadaLlegada())) {
-                        log.info("✅ ENTREGANDO pedido {} en instante {}", p.getPedido().getCodigo(), instante);
+                        log.debug("ENTREGANDO pedido {} en instante {}", p.getPedido().getCodigo(), instante);
                         p.registrarEntrega(instante);
                         // Mover el camión a esta posición final
                         if (p.getPedido() != null && p.getPedido().getDestino() != null) {
@@ -347,9 +407,9 @@ public class MotorSimulacion {
                             p.getPedido().setEstado(com.paqrap.logistics.pedidos.model.EstadoPedido.ENTREGADO);
                             pedidoRepository.save(p.getPedido());
                             unidadRepository.save(r.getUnidadTransporte());
-                            rutaRepository.save(r); 
+                            rutaRepository.save(r);
                         }
-                        
+
                         if (p.getPedido() != null) {
                             if (p.getPedido().getPlazoLimiteEntrega() != null && p.getPedido().getPlazoLimiteEntrega().isBefore(instante)) {
                                 pedidosTarde++;
@@ -372,7 +432,7 @@ public class MotorSimulacion {
                             startX = (prev.getPedido() != null && prev.getPedido().getDestino() != null) ? prev.getPedido().getDestino().getPosX() : 27;
                             startY = (prev.getPedido() != null && prev.getPedido().getDestino() != null) ? prev.getPedido().getDestino().getPosY() : 14;
                         }
-                        
+
                         if (startTime != null && p.getPedido() != null && p.getPedido().getDestino() != null) {
                             if (!instante.isBefore(startTime)) {
                                 long totalMin = java.time.Duration.between(startTime, p.getHoraEstimadaLlegada()).toMinutes();
@@ -380,13 +440,13 @@ public class MotorSimulacion {
                                 if (totalMin > 0) {
                                     double factor = (double) elapsedMin / totalMin;
                                     factor = Math.max(0.0, Math.min(1.0, factor));
-                                    
+
                                     int endX = p.getPedido().getDestino().getPosX();
                                     int endY = p.getPedido().getDestino().getPosY();
-                                    
+
                                     int currentX = (int) Math.round(startX + (endX - startX) * factor);
                                     int currentY = (int) Math.round(startY + (endY - startY) * factor);
-                                    
+
                                     r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(currentX, currentY));
                                     unidadRepository.save(r.getUnidadTransporte());
                                 }
@@ -421,7 +481,7 @@ public class MotorSimulacion {
                 .anyMatch(p -> p.getPlazoLimiteEntrega() != null && p.getPlazoLimiteEntrega().isBefore(ahora));
     }
 
-        /**
+    /**
      * Pausa la simulación sin perder el estado: el reloj se congela y se retoma al reanudar.
      */
     public void pausar() {
@@ -445,12 +505,23 @@ public class MotorSimulacion {
      * Detiene la corrida de la simulación y consolida los resultados (RF-73, RF-74).
      */
     public void detener() {
-        if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdown();
-        }
+        EstadoEjecucion estadoPrevio = estado;
+        // Se cambia el estado primero: así el ciclo deja de procesar en su siguiente vuelta
+        // aunque el sistema esté cargado, y el botón Finalizar responde de inmediato
         if (estado == EstadoEjecucion.EN_EJECUCION || estado == EstadoEjecucion.PAUSADA) {
             estado = EstadoEjecucion.FINALIZADA;
-            construirResultado(escenarioActual != null ? escenarioActual : TipoEscenario.DIA_A_DIA);
+        }
+        if (executorService != null && !executorService.isShutdown()) {
+            // shutdownNow interrumpe el ciclo en curso en lugar de esperar a que termine
+            executorService.shutdownNow();
+        }
+        if (estadoPrevio == EstadoEjecucion.EN_EJECUCION || estadoPrevio == EstadoEjecucion.PAUSADA) {
+            try {
+                construirResultado(escenarioActual != null ? escenarioActual : TipoEscenario.DIA_A_DIA);
+            } catch (Exception e) {
+                // Si falla guardar el resultado, la simulación igual queda detenida
+                log.error("No se pudo guardar el resultado de la simulación: {}", e.getMessage());
+            }
         }
         log.info("Motor de simulación detenido.");
     }

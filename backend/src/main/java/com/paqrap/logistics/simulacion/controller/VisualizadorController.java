@@ -68,6 +68,12 @@ public class VisualizadorController {
     public ResponseEntity<String> actualizarSemaforo(
             @RequestParam int horasVerde,
             @RequestParam int horasAmbar) {
+        if (horasVerde <= 0 || horasAmbar <= 0) {
+            throw new IllegalArgumentException("Los umbrales del semáforo deben ser mayores a 0 (RF-59).");
+        }
+        if (horasAmbar >= horasVerde) {
+            throw new IllegalArgumentException("El umbral verde debe ser estrictamente mayor al umbral ámbar (RF-59, CP-MAP-017).");
+        }
         configuracionSemaforo.actualizarRangos(Duration.ofHours(horasVerde), Duration.ofHours(horasAmbar));
         visualizador.aplicarSemaforoCriticidad(configuracionSemaforo);
         return ResponseEntity.ok("Rangos de semáforo actualizados: Verde >= " + horasVerde + "h, Ámbar >= " + horasAmbar + "h");
@@ -87,10 +93,10 @@ public class VisualizadorController {
     @PutMapping("/alertas/{id}/atender")
     @Operation(summary = "Marcar alerta como atendida")
     public ResponseEntity<Void> marcarAlertaAtendida(@PathVariable Long id) {
-        alertaRepository.findById(id).ifPresent(a -> {
-            a.marcarAtendida();
-            alertaRepository.save(a);
-        });
+        Alerta a = alertaRepository.findById(id)
+                .orElseThrow(() -> new com.paqrap.logistics.common.exception.ResourceNotFoundException("Alerta", "id", id));
+        a.marcarAtendida();
+        alertaRepository.save(a);
         return ResponseEntity.ok().build();
     }
 }
