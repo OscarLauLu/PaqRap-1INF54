@@ -85,13 +85,15 @@ export const App: React.FC = () => {
   // Solo el tramo que falta recorrer de cada ruta.
   const mismaUbicacion = (a: Ubicacion, b: Ubicacion) => a.posX === b.posX && a.posY === b.posY;
   const rutasMapa: RutaMapa[] = Array.from(rutaVigentePorUnidad.values())
-    .map((r) => {
+    .map((r): RutaMapa | null => {
       const unidad = unidades.find((u) => u.codigo === r.unidadCodigo);
       if (unidad?.estadoOperativo === 'AVERIADO') return null;
 
       const paradas = [...r.paradas].filter((p) => p.destino).sort((a, b) => a.orden - b.orden);
       const paradasPendientes = paradas.filter((p) => !p.entregada);
-      const codigosPedidos = paradasPendientes.map((p) => p.codigoPedido);
+      const codigosPedidos: string[] = paradasPendientes
+        .map((p) => p.codigoPedido)
+        .filter((c): c is string => c !== undefined && c !== null);
       if (paradasPendientes.length === 0) return null;
 
       // Si el backend envía el camino real se usa ese, porque refleja las calles que de verdad recorre

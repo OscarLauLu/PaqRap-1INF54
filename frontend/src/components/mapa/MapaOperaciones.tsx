@@ -28,6 +28,8 @@ interface MapaOperacionesProps {
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
   pausado?: boolean;
+  /** En la operación diaria muestra pedidos por atender */
+  mostrarPorAtender?: boolean;
 }
 
 /** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */

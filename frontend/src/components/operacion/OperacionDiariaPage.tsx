@@ -10,8 +10,8 @@ interface Props {
   almacenes: Almacen[];
   unidades: UnidadTransporte[];
   pedidos: Pedido[];
-  selectedUnidadId: number | null;
-  onSelectUnidad: (id: number) => void;
+  selectedUnidadCodigo?: string | null;
+  onSelectUnidad?: (codigo: string) => void;
   /** true = el motor corre con otro escenario (o uno desconocido): no se muestran datos en vivo. */
   sinDatos: boolean;
   /** Nombre del escenario que ocupa el motor, si se sabe. */
@@ -51,8 +51,8 @@ export const OperacionDiariaPage: React.FC<Props> = ({
   almacenes,
   unidades,
   pedidos,
-  selectedUnidadId,
-  onSelectUnidad,
+  selectedUnidadCodigo = null,
+  onSelectUnidad = () => {},
   sinDatos,
   ocupadoPor,
   onIniciar,
@@ -134,7 +134,7 @@ export const OperacionDiariaPage: React.FC<Props> = ({
             almacenes={almacenes}
             unidades={sinDatos ? [] : unidades}
             pedidos={sinDatos ? [] : pedidos}
-            selectedUnidadId={selectedUnidadId}
+            selectedUnidadCodigo={selectedUnidadCodigo}
             onSelectUnidad={onSelectUnidad}
             bloqueos={sinDatos ? [] : bloqueos}
           />

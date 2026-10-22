@@ -61,6 +61,14 @@ export const simulacionApi = {
     return apiClient.post('/api/simulacion/reanudar');
   },
 
+  async cambiarVelocidad(factor: number) {
+    try {
+      return await apiClient.post('/api/simulacion/velocidad', null, { params: { factor } });
+    } catch {
+      return null;
+    }
+  },
+
   async configurar(params: ParametrosSimulacionRequest) {
     return apiClient.post('/api/simulacion/configurar', params);
   },
