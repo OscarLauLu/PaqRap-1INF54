@@ -186,20 +186,28 @@ public class EvaluacionDesempenoTest {
 
         // 1. Llegada dinámica de pedidos en caliente con diferentes prioridades
         ConfiguracionSemaforo semaforo = ConfiguracionSemaforo.builder()
-                .horasVerde(12.0)
-                .horasAmbar(4.0)
+                .umbralVerdeMin(Duration.ofHours(12))
+                .umbralAmbarMin(Duration.ofHours(4))
                 .build();
 
         Pedido pCritico = crearPedido("PED-URG", ahora, TipoEntrega.PRIORIZADA_4H, 3, new Ubicacion(26, 16));
         Pedido pMedio = crearPedido("PED-MED", ahora, TipoEntrega.PRIORIZADA_12H, 5, new Ubicacion(28, 20));
         Pedido pRegular = crearPedido("PED-REG", ahora, TipoEntrega.REGULAR_36H, 8, new Ubicacion(32, 14));
 
-        // Evaluar clasificación semafórica dinámica (RF-03, RF-53)
-        pCritico.evaluarCriticidad(semaforo);
-        pMedio.evaluarCriticidad(semaforo);
-        pRegular.evaluarCriticidad(semaforo);
+        // Fijar plazos explícitos para obtener holguras deterministas respecto a 'ahora':
+        // pCritico: holgura = 2h  -> ROJO  (< 4h)
+        // pMedio:   holgura = 8h  -> AMBAR (>= 4h y < 12h)
+        // pRegular: holgura = 24h -> VERDE (>= 12h)
+        pCritico.setPlazoLimiteEntrega(ahora.plusHours(2));
+        pMedio.setPlazoLimiteEntrega(ahora.plusHours(8));
+        pRegular.setPlazoLimiteEntrega(ahora.plusHours(24));
 
-        assertEquals(NivelCriticidad.ROJO, pCritico.getNivelCriticidad(), "Pedido con holgura <= 4h debe ser clasificado en ROJO");
+        // Evaluar clasificación semafórica dinámica (RF-03, RF-53)
+        pCritico.evaluarCriticidad(semaforo, ahora);
+        pMedio.evaluarCriticidad(semaforo, ahora);
+        pRegular.evaluarCriticidad(semaforo, ahora);
+
+        assertEquals(NivelCriticidad.ROJO, pCritico.getNivelCriticidad(), "Pedido con holgura < 4h debe ser clasificado en ROJO");
         assertEquals(NivelCriticidad.AMBAR, pMedio.getNivelCriticidad(), "Pedido con holgura entre 4h y 12h debe ser clasificado en AMBAR");
         assertEquals(NivelCriticidad.VERDE, pRegular.getNivelCriticidad(), "Pedido con holgura >= 12h debe ser clasificado en VERDE");
 
@@ -283,6 +291,13 @@ public class EvaluacionDesempenoTest {
 
         System.out.printf("[EV-COMP OK] Diff Cumplimiento: +%.1f%% | Diff Costo: S/ %.2f%n",
                 comparativa.get("diffCumplimientoPct"), comparativa.get("diffCostoTotal"));
+    }
+
+    @Test
+    @DisplayName("EV-RUNNER: Ejecución completa del runner CLI de evaluación de desempeño")
+    void testRunnerEjecutaSinErrores() {
+        boolean ok = com.paqrap.logistics.simulacion.model.EvaluadorDesempenoRunner.ejecutarEvaluacionCompleta();
+        assertTrue(ok, "El runner de evaluación de desempeño debe completar 100% exitoso");
     }
 
     private Pedido crearPedido(String codigo, LocalDateTime fechaRegistro, TipoEntrega tipo, int unidades, Ubicacion destino) {

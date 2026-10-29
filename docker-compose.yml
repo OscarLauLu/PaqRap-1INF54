@@ -70,6 +70,18 @@ services:
     command: ["benchmark"]
 
   # ----------------------------------------------------------------------------
+  # Servicio para ejecutar la Evaluación Automatizada de Desempeño (5D y Día a Día)
+  # ----------------------------------------------------------------------------
+  evaluacion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paqrap-evaluacion
+    volumes:
+      - ./datos:/app/datos:ro
+    command: ["evaluacion"]
+
+  # ----------------------------------------------------------------------------
   # Base de Datos PostgreSQL opcional (para perfil prod)
   # ----------------------------------------------------------------------------
   db:
