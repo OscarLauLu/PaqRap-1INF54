@@ -108,15 +108,24 @@ public class Pedido {
     }
 
     /**
-     * Evalúa y clasifica el pedido en los tres niveles de criticidad del semáforo (RF-03, RF-53).
+     * Evalúa y clasifica el pedido en los tres niveles de criticidad del semáforo (RF-03, RF-53)
+     * respecto al instante temporal especificado.
      */
-    public NivelCriticidad evaluarCriticidad(ConfiguracionSemaforo config) {
+    public NivelCriticidad evaluarCriticidad(ConfiguracionSemaforo config, LocalDateTime instanteActual) {
         if (config == null) {
             return NivelCriticidad.VERDE;
         }
-        Duration holgura = calcularHolgura(LocalDateTime.now());
+        LocalDateTime ahora = (instanteActual != null) ? instanteActual : LocalDateTime.now();
+        Duration holgura = calcularHolgura(ahora);
         this.nivelCriticidad = config.clasificar(holgura);
         return this.nivelCriticidad;
+    }
+
+    /**
+     * Sobrecarga de conveniencia que utiliza el reloj del sistema.
+     */
+    public NivelCriticidad evaluarCriticidad(ConfiguracionSemaforo config) {
+        return evaluarCriticidad(config, LocalDateTime.now());
     }
 
     /**

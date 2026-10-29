@@ -85,8 +85,8 @@ public class Planificador {
             return new ArrayList<>();
         }
 
-        // Ordenar pedidos de menor a mayor holgura (RF-04)
-        List<Pedido> pedidosOrdenados = ordenarPorHolgura(pedidosPendientes);
+        // Ordenar pedidos de menor a mayor holgura (RF-04) según el instante simulado
+        List<Pedido> pedidosOrdenados = ordenarPorHolgura(pedidosPendientes, instante);
 
         // Obtener flota disponible
         List<UnidadTransporte> flotaDisponible = unidadRepository.findByDadaDeBajaFalseAndEstadoOperativo(EstadoOperativo.DISPONIBLE);
@@ -145,16 +145,23 @@ public class Planificador {
     }
 
     /**
-     * Ordena los pedidos pendientes de menor a mayor holgura (RF-04).
+     * Ordena los pedidos pendientes de menor a mayor holgura (RF-04) según el instante temporal.
      * Los pedidos con holgura por debajo del umbral crítico son priorizados primero.
      */
-    public List<Pedido> ordenarPorHolgura(List<Pedido> pedidos) {
+    public List<Pedido> ordenarPorHolgura(List<Pedido> pedidos, LocalDateTime instante) {
         if (pedidos == null) return new ArrayList<>();
-        LocalDateTime ahora = LocalDateTime.now();
+        LocalDateTime ahora = (instante != null) ? instante : LocalDateTime.now();
 
         return pedidos.stream()
                 .sorted(Comparator.comparing(p -> p.calcularHolgura(ahora)))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Sobrecarga para mantener compatibilidad con invocaciones que no especifican instante.
+     */
+    public List<Pedido> ordenarPorHolgura(List<Pedido> pedidos) {
+        return ordenarPorHolgura(pedidos, LocalDateTime.now());
     }
 
     /**

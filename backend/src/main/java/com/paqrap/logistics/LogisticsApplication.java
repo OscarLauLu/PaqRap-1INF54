@@ -21,8 +21,14 @@ public class LogisticsApplication {
     }
 
     @Bean
-    public CommandLineRunner benchmarkCommandLineRunner(ApplicationArguments appArgs) {
+    public CommandLineRunner benchmarkCommandLineRunner(ApplicationArguments appArgs,
+                                                         com.paqrap.logistics.simulacion.model.MotorSimulacion motorSimulacion) {
         return args -> {
+            if (appArgs.containsOption("evaluacion") || appArgs.containsOption("eval") || "true".equalsIgnoreCase(System.getenv("RUN_EVALUACION"))) {
+                boolean ok = com.paqrap.logistics.simulacion.model.EvaluadorDesempenoRunner.ejecutarEvaluacionConMotor(motorSimulacion);
+                System.exit(ok ? 0 : 1);
+            }
+
             if (appArgs.containsOption("experimento") || appArgs.containsOption("exp5d") || "true".equalsIgnoreCase(System.getenv("RUN_EXPERIMENTO"))) {
                 java.util.List<String> expArgs = new java.util.ArrayList<>();
                 for (String opt : appArgs.getOptionNames()) {

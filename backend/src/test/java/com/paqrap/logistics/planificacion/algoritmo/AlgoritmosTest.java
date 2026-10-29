@@ -189,4 +189,51 @@ class AlgoritmosTest {
 
         assertTrue(asignadosEnVehiculoSano, "Todos los pedidos deben haber sido rescatados y reasignados a vehículos operativos");
     }
+
+    @Test
+    void testTurnos_HorariosYAlimentacion() {
+        // Validar turnos oficiales (07:00, 15:00, 23:00)
+        com.paqrap.logistics.flota.model.Turno t1 = com.paqrap.logistics.flota.model.Turno.obtenerTurnoActivo(java.time.LocalTime.of(8, 0));
+        assertEquals(1, t1.getId(), "08:00 debe pertenecer al Turno Mañana (ID=1)");
+
+        com.paqrap.logistics.flota.model.Turno t2 = com.paqrap.logistics.flota.model.Turno.obtenerTurnoActivo(java.time.LocalTime.of(16, 0));
+        assertEquals(2, t2.getId(), "16:00 debe pertenecer al Turno Tarde (ID=2)");
+
+        com.paqrap.logistics.flota.model.Turno t3 = com.paqrap.logistics.flota.model.Turno.obtenerTurnoActivo(java.time.LocalTime.of(1, 0));
+        assertEquals(3, t3.getId(), "01:00 debe pertenecer al Turno Noche (ID=3)");
+
+        // Validar ventanas de alimentación
+        assertTrue(com.paqrap.logistics.flota.model.Turno.esHoraAlimentacion(java.time.LocalTime.of(12, 30)), "12:30 es hora de almuerzo");
+        assertTrue(com.paqrap.logistics.flota.model.Turno.esHoraAlimentacion(java.time.LocalTime.of(19, 15)), "19:15 es hora de cena");
+        assertTrue(com.paqrap.logistics.flota.model.Turno.esHoraAlimentacion(java.time.LocalTime.of(3, 45)), "03:45 es hora de refrigerio nocturno");
+        assertFalse(com.paqrap.logistics.flota.model.Turno.esHoraAlimentacion(java.time.LocalTime.of(10, 0)), "10:00 no es hora de alimentación");
+
+        // Validar ajuste de tiempo por alimentación
+        LocalDateTime inicio = LocalDateTime.of(2026, 9, 1, 11, 45);
+        LocalDateTime fin = com.paqrap.logistics.flota.model.Turno.ajustarPorAlimentacion(inicio, 30);
+        // 11:45 + 30m = 12:15, cruza las 12:00 -> añade 60 min de almuerzo = 13:15
+        assertEquals(LocalDateTime.of(2026, 9, 1, 13, 15), fin);
+    }
+
+    @Test
+    void testOrdenarPorHolgura_UsaInstanteSimulado() {
+        com.paqrap.logistics.planificacion.model.Planificador planificador =
+                new com.paqrap.logistics.planificacion.model.Planificador(
+                        null, redVial, null, null, null, null);
+
+        LocalDateTime instanteSimulado = LocalDateTime.of(2026, 9, 1, 8, 0);
+
+        Pedido pUrgente = Pedido.builder()
+                .codigo("PED-URGENTE")
+                .plazoLimiteEntrega(instanteSimulado.plusHours(1))
+                .build();
+        Pedido pHolgado = Pedido.builder()
+                .codigo("PED-HOLGADO")
+                .plazoLimiteEntrega(instanteSimulado.plusHours(10))
+                .build();
+
+        List<Pedido> ordenados = planificador.ordenarPorHolgura(List.of(pHolgado, pUrgente), instanteSimulado);
+        assertEquals("PED-URGENTE", ordenados.get(0).getCodigo(), "El pedido más urgente debe quedar primero");
+        assertEquals("PED-HOLGADO", ordenados.get(1).getCodigo(), "El pedido más holgado debe quedar al final");
+    }
 }

@@ -45,6 +45,8 @@ public class ParametrosSimulacion {
 
     private LocalDateTime fechaHoraInicio;
 
+    private Double factorAceleracion;
+
     /**
      * Valida que todos los parámetros configurados cumplan con las restricciones de negocio (RF-64).
      */
