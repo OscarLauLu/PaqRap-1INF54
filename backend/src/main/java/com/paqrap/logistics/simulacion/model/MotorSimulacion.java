@@ -4,6 +4,7 @@ import com.paqrap.logistics.almacen.model.AlmacenIntermedio;
 import com.paqrap.logistics.almacen.repository.AlmacenRepository;
 import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
+import com.paqrap.logistics.flota.model.Turno;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.AveriaRepository;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
@@ -171,15 +172,23 @@ public class MotorSimulacion {
         // Las rutas de corridas anteriores que quedaron sin completar se cierran, porque si no el
         // ciclo las sigue procesando cada medio segundo y la simulación se vuelve cada vez más lenta
         try {
-            transactionTemplate.executeWithoutResult(status ->
-                    rutaRepository.findAll().stream()
-                            .filter(r -> r.getEstado() != EstadoRuta.COMPLETADA)
-                            .forEach(r -> {
-                                r.setEstado(EstadoRuta.COMPLETADA);
-                                rutaRepository.save(r);
-                            }));
+            transactionTemplate.executeWithoutResult(status -> {
+                rutaRepository.findAll().stream()
+                        .filter(r -> r.getEstado() != EstadoRuta.COMPLETADA)
+                        .forEach(r -> {
+                            r.setEstado(EstadoRuta.COMPLETADA);
+                            rutaRepository.save(r);
+                        });
+                // Limpiar pedidos activos de corridas anteriores para evitar colapso falso e inmediato en segundo 0
+                pedidoRepository.findAll().stream()
+                        .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
+                        .forEach(p -> {
+                            p.setEstado(com.paqrap.logistics.pedidos.model.EstadoPedido.CANCELADO);
+                            pedidoRepository.save(p);
+                        });
+            });
         } catch (Exception e) {
-            log.warn("No se pudieron cerrar las rutas de corridas anteriores: {}", e.getMessage());
+            log.warn("No se pudieron cerrar las rutas o pedidos de corridas anteriores: {}", e.getMessage());
         }
 
         this.estado = EstadoEjecucion.EN_EJECUCION;
@@ -384,6 +393,12 @@ public class MotorSimulacion {
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
 
+            // Si el instante actual corresponde a la hora de alimentación obligatoria del turno (RF-44),
+            // el conductor se encuentra en refrigerio y no realiza entregas durante esta hora
+            if (Turno.esHoraAlimentacion(instante.toLocalTime())) {
+                continue;
+            }
+
             // Marcar como en ejecución si estaba planificada
             if (r.getEstado() == EstadoRuta.PLANIFICADA) {
                 r.setEstado(EstadoRuta.EN_EJECUCION);
@@ -472,9 +487,12 @@ public class MotorSimulacion {
     /**
      * Detecta si el sistema colapsó en el escenario de colapso logístico (RF-73).
      * Regla de negocio exacta (no admite umbral ni porcentaje): el sistema colapsa en el instante
-     * en que UN SOLO pedido activo (no ENTREGADO) incumple su plazo límite de entrega.
+     * en que UN SOLO pedido (activo o ya entregado con retraso) incumple su plazo límite de entrega.
      */
     public boolean detectarColapso() {
+        if (pedidosTarde > 0) {
+            return true;
+        }
         LocalDateTime ahora = reloj.getInstanteActual();
         return pedidoRepository.findAll().stream()
                 .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
