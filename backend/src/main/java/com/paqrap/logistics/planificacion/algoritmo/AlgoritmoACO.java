@@ -1,6 +1,7 @@
 package com.paqrap.logistics.planificacion.algoritmo;
 
 import com.paqrap.logistics.flota.model.EstadoOperativo;
+import com.paqrap.logistics.flota.model.Turno;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.pedidos.model.Pedido;
 import com.paqrap.logistics.planificacion.algoritmo.aco.ConfigACO;
@@ -269,7 +270,7 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
 
                 double tiempoViajeHoras = d / velocidadKmH;
                 long minutosViaje = (long) Math.ceil(tiempoViajeHoras * 60.0);
-                LocalDateTime llegada = tiempo.plusMinutes(minutosViaje);
+                LocalDateTime llegada = Turno.ajustarPorAlimentacion(tiempo, minutosViaje);
 
                 if (o.getPlazoLimiteEntrega() != null && llegada.isAfter(o.getPlazoLimiteEntrega())) {
                     continue; // ya no cumpliría el plazo comprometido (RF-08)
@@ -303,7 +304,7 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
             ant.setDistanciaAcumuladaKm(ant.getDistanciaAcumuladaKm() + d);
 
             current = nodoElegido;
-            tiempo = llegada.plusMinutes(60); // 60 min de servicio impactan paradas posteriores (RF-09)
+            tiempo = Turno.ajustarPorAlimentacion(llegada, 60); // 60 min de servicio + pausa de alimentación si aplica (RF-09, RF-44)
         }
         if (!ant.getPedidosAtendidos().isEmpty()) {
             double dRetorno = red.distanciaMinima(current, origen, tiempo);
@@ -311,7 +312,7 @@ public class AlgoritmoACO implements AlgoritmoRuteo {
                 ant.setDistanciaAcumuladaKm(ant.getDistanciaAcumuladaKm() + dRetorno);
                 ant.setCostoAcumulado(ant.getCostoAcumulado() + (dRetorno * costoKm));
                 long minRetorno = (long) Math.ceil((dRetorno / velocidadKmH) * 60.0);
-                tiempo = tiempo.plusMinutes(minRetorno);
+                tiempo = Turno.ajustarPorAlimentacion(tiempo, minRetorno);
             }
         }
         ant.setTiempoAcumuladoMin((int) Duration.between(horaInicio, tiempo).toMinutes());

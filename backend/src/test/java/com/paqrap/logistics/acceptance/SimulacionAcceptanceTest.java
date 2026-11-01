@@ -198,8 +198,8 @@ public class SimulacionAcceptanceTest {
     @Test
     @DisplayName("CP-SIM-048: Comparar dos corridas (200 OK)")
     void testCP_SIM_048_CompararCorridas() throws Exception {
-        ResultadoSimulacion r1 = ResultadoSimulacion.builder().codigo("SIM-001").porcentajeEntregasA_Tiempo(98.0).build();
-        ResultadoSimulacion r2 = ResultadoSimulacion.builder().codigo("SIM-002").porcentajeEntregasA_Tiempo(92.0).build();
+        ResultadoSimulacion r1 = ResultadoSimulacion.builder().codigo("SIM-001").porcentajeCumplimiento(98.0).build();
+        ResultadoSimulacion r2 = ResultadoSimulacion.builder().codigo("SIM-002").porcentajeCumplimiento(92.0).build();
 
         when(resultadoRepository.findByCodigo("SIM-001")).thenReturn(Optional.of(r1));
         when(resultadoRepository.findByCodigo("SIM-002")).thenReturn(Optional.of(r2));

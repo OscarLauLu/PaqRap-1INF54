@@ -4,6 +4,7 @@ import com.paqrap.logistics.almacen.model.AlmacenIntermedio;
 import com.paqrap.logistics.almacen.repository.AlmacenRepository;
 import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
+import com.paqrap.logistics.flota.model.Turno;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.AveriaRepository;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
@@ -47,6 +48,7 @@ public class MotorSimulacion {
     @Setter
     private EstadoEjecucion estado = EstadoEjecucion.CONFIGURADA;
 
+    @Getter
     private final RelojSimulado reloj;
     private final Planificador planificador;
     private final CargadorArchivos cargadorArchivos;
@@ -64,8 +66,11 @@ public class MotorSimulacion {
     private ParametrosSimulacion parametros;
 
     private ScheduledExecutorService executorService;
+    @Getter @Setter
     private List<Pedido> pedidosProgramados = new ArrayList<>();
+    @Getter @Setter
     private List<Bloqueo> bloqueosProgramados = new ArrayList<>();
+    @Getter @Setter
     private List<Averia> averiasProgramadas = new ArrayList<>();
 
     // Métricas acumuladas en tiempo real
@@ -171,15 +176,23 @@ public class MotorSimulacion {
         // Las rutas de corridas anteriores que quedaron sin completar se cierran, porque si no el
         // ciclo las sigue procesando cada medio segundo y la simulación se vuelve cada vez más lenta
         try {
-            transactionTemplate.executeWithoutResult(status ->
-                    rutaRepository.findAll().stream()
-                            .filter(r -> r.getEstado() != EstadoRuta.COMPLETADA)
-                            .forEach(r -> {
-                                r.setEstado(EstadoRuta.COMPLETADA);
-                                rutaRepository.save(r);
-                            }));
+            transactionTemplate.executeWithoutResult(status -> {
+                rutaRepository.findAll().stream()
+                        .filter(r -> r.getEstado() != EstadoRuta.COMPLETADA)
+                        .forEach(r -> {
+                            r.setEstado(EstadoRuta.COMPLETADA);
+                            rutaRepository.save(r);
+                        });
+                // Limpiar pedidos activos de corridas anteriores para evitar colapso falso e inmediato en segundo 0
+                pedidoRepository.findAll().stream()
+                        .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
+                        .forEach(p -> {
+                            p.setEstado(com.paqrap.logistics.pedidos.model.EstadoPedido.CANCELADO);
+                            pedidoRepository.save(p);
+                        });
+            });
         } catch (Exception e) {
-            log.warn("No se pudieron cerrar las rutas de corridas anteriores: {}", e.getMessage());
+            log.warn("No se pudieron cerrar las rutas o pedidos de corridas anteriores: {}", e.getMessage());
         }
 
         this.estado = EstadoEjecucion.EN_EJECUCION;
@@ -203,19 +216,23 @@ public class MotorSimulacion {
         this.ultimaHoraPlanificada = null;
         LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null) ? parametros.getFechaHoraInicio() : LocalDateTime.of(2026, 9, 1, 0, 0, 0);
         double factorAceleracion;
-        switch (escenario) {
-            case DIA_A_DIA:
-                factorAceleracion = 1.0;
-                break;
-            case SIMULACION_5D:
-                // 5 días = 120 horas = 7200 min simulados. En 30-60 min reales -> ~150x aceleración
-                factorAceleracion = 150.0;
-                break;
-            case COLAPSO_LOGISTICO:
-                factorAceleracion = 50.0;
-                break;
-            default:
-                factorAceleracion = 1.0;
+        if (parametros != null && parametros.getFactorAceleracion() != null && parametros.getFactorAceleracion() > 0) {
+            factorAceleracion = parametros.getFactorAceleracion();
+        } else {
+            switch (escenario) {
+                case DIA_A_DIA:
+                    factorAceleracion = 1.0;
+                    break;
+                case SIMULACION_5D:
+                    // 5 días = 120 horas = 7200 min simulados. En 30-60 min reales -> ~150x aceleración
+                    factorAceleracion = 150.0;
+                    break;
+                case COLAPSO_LOGISTICO:
+                    factorAceleracion = 50.0;
+                    break;
+                default:
+                    factorAceleracion = 1.0;
+            }
         }
         reloj.inicializar(inicioSim, factorAceleracion);
 
@@ -235,75 +252,7 @@ public class MotorSimulacion {
         // Arrancar ciclo periódico de simulación
         executorService = Executors.newSingleThreadScheduledExecutor();
         executorService.scheduleAtFixedRate(() -> {
-            if (estado != EstadoEjecucion.EN_EJECUCION) return;
-
-            // Avanza según el tiempo real transcurrido, escalado por el factor de aceleración del escenario.
-            reloj.avanzar(java.time.Duration.ofMillis(500));
-            LocalDateTime instanteActual = reloj.getInstanteActual();
-
-            // --- Transacción 1: Procesar eventos (nuevos pedidos, bloqueos, averías) ---
-            try {
-                transactionTemplate.executeWithoutResult(status -> {
-                    procesarEventos(instanteActual);
-                });
-            } catch (Exception e) {
-                log.error("Error procesando eventos en instante {}: {}", instanteActual, e.getMessage());
-            }
-
-            // Si se pidió detener mientras se procesaba, no se sigue con el resto del ciclo
-            if (estado != EstadoEjecucion.EN_EJECUCION) return;
-
-            // --- Transacción 2: Movimientos de flota y entregas ---
-            try {
-                transactionTemplate.executeWithoutResult(status -> {
-                    ejecutarMovimientosFlota(instanteActual);
-                });
-            } catch (Exception e) {
-                log.error("Error en movimientos de flota en instante {}: {}", instanteActual, e.getMessage());
-            }
-
-            if (estado != EstadoEjecucion.EN_EJECUCION) return;
-
-            // --- Transacción 3: Planificación de rutas, una vez por bloque de tiempo simulado ---
-            // Simulación: cada hora simulada (a 150x pasa en ~24 s reales).
-            // Operación: cada 5 minutos, porque corre en tiempo real y un pedido recién registrado
-            // no puede esperar hasta una hora para recibir su ruta. También planifica al arrancar.
-            try {
-                LocalDateTime bloqueActual = esModoOperacion()
-                        ? instanteActual.truncatedTo(ChronoUnit.MINUTES).withMinute(instanteActual.getMinute() / 5 * 5)
-                        : instanteActual.truncatedTo(ChronoUnit.HOURS);
-                if (ultimaHoraPlanificada == null || bloqueActual.isAfter(ultimaHoraPlanificada)) {
-                    ultimaHoraPlanificada = bloqueActual;
-                    transactionTemplate.executeWithoutResult(status -> {
-                        List<Ruta> nuevasRutas = planificador.ejecutarCicloPlanificacion(instanteActual);
-                        registrarCostosYRutas(nuevasRutas);
-                    });
-                }
-            } catch (Exception e) {
-                log.error("Error en planificación en instante {}: {}", instanteActual, e.getMessage());
-            }
-
-            // Recarga diaria de almacenes intermedios a las 23:59:59 (RF-20)
-            try {
-                LocalTime hora = reloj.horaSimulada();
-                if (hora.getHour() == 23 && hora.getMinute() >= 50) {
-                    transactionTemplate.executeWithoutResult(status -> {
-                        ejecutarRecargaDiaria();
-                    });
-                }
-            } catch (Exception e) {
-                log.error("Error en recarga diaria: {}", e.getMessage());
-            }
-
-            // Verificar condición de colapso si aplica (RF-73): colapsa apenas UN pedido incumple su plazo
-            if (escenario == TipoEscenario.COLAPSO_LOGISTICO && detectarColapso()) {
-                this.instanteColapsoDetectado = instanteActual;
-                this.volumenPedidosColapsoDetectado = contarPedidosActivos();
-                log.warn("¡COLAPSO LOGÍSTICO DETECTADO en el instante {}! Pedidos activos al momento del colapso: {}",
-                        instanteActual, volumenPedidosColapsoDetectado);
-                detener();
-                this.estado = EstadoEjecucion.DETENIDA_POR_COLAPSO;
-            }
+            avanzarPasoSimulado(java.time.Duration.ofMillis(500));
         }, 0, 500, TimeUnit.MILLISECONDS);
 
         ResultadoSimulacion inicial = new ResultadoSimulacion();
@@ -311,6 +260,89 @@ public class MotorSimulacion {
         inicial.setFechaHoraInicio(inicioSim);
         inicial.setTotalPedidos(pedidosProgramados.size());
         return inicial;
+    }
+
+    /**
+     * Ejecuta un paso atómico completo de la simulación para un avance de tiempo real especificado.
+     * Permite avanzar el motor tanto en modo en tiempo real continuo como en modo paso a paso sincrónico.
+     */
+    public void avanzarPasoSimulado(java.time.Duration avanceTiempoReal) {
+        if (estado != EstadoEjecucion.EN_EJECUCION) return;
+
+        // Avanza según el tiempo real transcurrido, escalado por el factor de aceleración del escenario.
+        reloj.avanzar(avanceTiempoReal);
+        LocalDateTime instanteActual = reloj.getInstanteActual();
+
+        // --- Transacción 1: Procesar eventos (nuevos pedidos, bloqueos, averías) ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                procesarEventos(instanteActual);
+            });
+        } catch (Exception e) {
+            log.error("Error procesando eventos en instante {}: {}", instanteActual, e.getMessage());
+        }
+
+        if (estado != EstadoEjecucion.EN_EJECUCION) return;
+
+        // --- Transacción 2: Movimientos de flota y entregas ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                ejecutarMovimientosFlota(instanteActual);
+            });
+        } catch (Exception e) {
+            log.error("Error en movimientos de flota en instante {}: {}", instanteActual, e.getMessage());
+        }
+
+        if (estado != EstadoEjecucion.EN_EJECUCION) return;
+
+        // --- Transacción 3: Planificación de rutas, una vez por bloque de tiempo simulado ---
+        try {
+            LocalDateTime bloqueActual = esModoOperacion()
+                    ? instanteActual.truncatedTo(ChronoUnit.MINUTES).withMinute(instanteActual.getMinute() / 5 * 5)
+                    : instanteActual.truncatedTo(ChronoUnit.HOURS);
+            if (ultimaHoraPlanificada == null || bloqueActual.isAfter(ultimaHoraPlanificada)) {
+                ultimaHoraPlanificada = bloqueActual;
+                transactionTemplate.executeWithoutResult(status -> {
+                    List<Ruta> nuevasRutas = planificador.ejecutarCicloPlanificacion(instanteActual);
+                    registrarCostosYRutas(nuevasRutas);
+                });
+            }
+        } catch (Exception e) {
+            log.error("Error en planificación en instante {}: {}", instanteActual, e.getMessage());
+        }
+
+        // Recarga diaria de almacenes intermedios a las 23:59:59 (RF-20)
+        try {
+            LocalTime hora = reloj.horaSimulada();
+            if (hora.getHour() == 23 && hora.getMinute() >= 50) {
+                transactionTemplate.executeWithoutResult(status -> {
+                    ejecutarRecargaDiaria();
+                });
+            }
+        } catch (Exception e) {
+            log.error("Error en recarga diaria: {}", e.getMessage());
+        }
+
+        // Finalizar automáticamente SIMULACION_5D al cumplirse los 5 días (120 horas)
+        LocalDateTime inicioSim = reloj.getInstanteInicio();
+        if (escenarioActual == TipoEscenario.SIMULACION_5D && inicioSim != null) {
+            if (!instanteActual.isBefore(inicioSim.plusDays(5))) {
+                log.info("Simulación 5D completada exitosamente al alcanzar el horizonte de 5 días ({}).", instanteActual);
+                detener();
+                this.estado = EstadoEjecucion.FINALIZADA;
+                return;
+            }
+        }
+
+        // Verificar condición de colapso si aplica (RF-73)
+        if (escenarioActual == TipoEscenario.COLAPSO_LOGISTICO && detectarColapso()) {
+            this.instanteColapsoDetectado = instanteActual;
+            this.volumenPedidosColapsoDetectado = contarPedidosActivos();
+            log.warn("¡COLAPSO LOGÍSTICO DETECTADO en el instante {}! Pedidos activos al momento del colapso: {}",
+                    instanteActual, volumenPedidosColapsoDetectado);
+            detener();
+            this.estado = EstadoEjecucion.DETENIDA_POR_COLAPSO;
+        }
     }
 
     /**
@@ -328,13 +360,18 @@ public class MotorSimulacion {
         }
         for (Pedido p : entrantes) {
             try {
-                if (p.getCliente() != null) {
-                    com.paqrap.logistics.pedidos.model.Cliente existing = clienteRepository.findByIdCliente(p.getCliente().getIdCliente()).orElse(null);
-                    if (existing != null) {
-                        p.setCliente(existing);
+                if (p.getCliente() != null && p.getCliente().getIdCliente() != null) {
+                    String cId = p.getCliente().getIdCliente();
+                    com.paqrap.logistics.pedidos.model.Cliente clienteExistente = clienteRepository.findById(cId).orElse(null);
+                    if (clienteExistente != null) {
+                        p.setCliente(clienteExistente);
                     } else {
-                        // Save the new client first since cascade is removed
-                        p.setCliente(clienteRepository.save(p.getCliente()));
+                        com.paqrap.logistics.pedidos.model.Cliente nuevoCliente = com.paqrap.logistics.pedidos.model.Cliente.builder()
+                                .idCliente(cId)
+                                .nombre(p.getCliente().getNombre() != null ? p.getCliente().getNombre() : "Cliente " + cId)
+                                .ubicacionEntrega(p.getDestino())
+                                .build();
+                        p.setCliente(clienteRepository.save(nuevoCliente));
                     }
                 }
                 pedidoRepository.save(p);
@@ -342,8 +379,8 @@ public class MotorSimulacion {
             } catch (Exception e) {
                 log.warn("Error al guardar pedido {}: {}", p.getCodigo(), e.getMessage());
             }
-            pedidosProgramados.remove(p);
         }
+        pedidosProgramados.removeAll(entrantes);
 
         // 2. Activación / desactivación de bloqueos (RF-11)
         for (Bloqueo b : bloqueosProgramados) {
@@ -383,6 +420,12 @@ public class MotorSimulacion {
         List<Ruta> rutasActivas = rutaRepository.findAll();
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
+
+            // Si el instante actual corresponde a la hora de alimentación obligatoria del turno (RF-44),
+            // el conductor se encuentra en refrigerio y no realiza entregas durante esta hora
+            if (Turno.esHoraAlimentacion(instante.toLocalTime())) {
+                continue;
+            }
 
             // Marcar como en ejecución si estaba planificada
             if (r.getEstado() == EstadoRuta.PLANIFICADA) {
@@ -472,9 +515,12 @@ public class MotorSimulacion {
     /**
      * Detecta si el sistema colapsó en el escenario de colapso logístico (RF-73).
      * Regla de negocio exacta (no admite umbral ni porcentaje): el sistema colapsa en el instante
-     * en que UN SOLO pedido activo (no ENTREGADO) incumple su plazo límite de entrega.
+     * en que UN SOLO pedido (activo o ya entregado con retraso) incumple su plazo límite de entrega.
      */
     public boolean detectarColapso() {
+        if (pedidosTarde > 0) {
+            return true;
+        }
         LocalDateTime ahora = reloj.getInstanteActual();
         return pedidoRepository.findAll().stream()
                 .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
@@ -554,8 +600,9 @@ public class MotorSimulacion {
     }
 
     public ResultadoSimulacion construirResultado(TipoEscenario escenario) {
-        double pctCumplimiento = (totalPedidosIngresados > 0)
-                ? ((double) pedidosEnPlazo / totalPedidosIngresados) * 100.0 : 100.0;
+        int entregadosTotal = pedidosEnPlazo + pedidosTarde;
+        double pctCumplimiento = (entregadosTotal > 0)
+                ? ((double) pedidosEnPlazo / entregadosTotal) * 100.0 : 100.0;
 
         ResultadoSimulacion res = ResultadoSimulacion.builder()
                 .codigo("SIM-" + UUID.randomUUID().toString().substring(0, 8))
