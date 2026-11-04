@@ -4,6 +4,9 @@ import { RelojSimuladoData, Almacen, UnidadTransporte, Pedido, MetricasSimulacio
 import type { TipoAveria } from '../../types/registro';
 import { averiasApi } from '../../api/averiasApi';
 import { formatFechaHora, parseUbicacion } from '../registro/utils';
+import { Eye, EyeOff, Layers } from 'lucide-react';
+import { Bodega, VehiculoRealista } from '../mapa/IconosMapa';
+import { FILTROS_VACIOS, alternarCapa, capaAlmacen, type CapaMapa, type FiltrosPanel } from '../../hooks/filtros';
 
 const TIPOS_AVERIA: { valor: TipoAveria; etiqueta: string }[] = [
   { valor: 'TIPO_1', etiqueta: 'Tipo 1 — 2 h en el lugar' },
@@ -23,6 +26,8 @@ interface RightPanelProps {
   pedidos: Pedido[];
   metricas: MetricasSimulacion;
   selectedUnidadCodigo: string | null;
+  filtros?: FiltrosPanel;
+  onCambiarFiltros?: (filtros: FiltrosPanel) => void;
   /**
    * 'operacion': panel de la Operación día a día (registro de avería, resumen, vehículos, stock, incidencias y costo).
    * 'simulacion' (por defecto): además muestra el detalle de vehículos y pedidos.
@@ -30,11 +35,81 @@ interface RightPanelProps {
   modo?: 'operacion' | 'simulacion';
 }
 
+/** Tipos de vehículo que se pueden mostrar u ocultar en el mapa */
+// Mismos colores e íconos que usa el mapa, para que panel y mapa se lean igual
+const CAPAS_VEHICULO: { capa: CapaMapa; etiqueta: string; tipo: string; color: string }[] = [
+  { capa: 'Auto', etiqueta: 'Autos', tipo: 'Auto', color: '#2563EB' },
+  { capa: 'Moto', etiqueta: 'Motos', tipo: 'Moto', color: '#9333EA' },
+  { capa: 'Bicicleta', etiqueta: 'Bicicletas', tipo: 'Bicicleta', color: '#EC4899' },
+];
+
+/** Datos del almacén igual que en el mapa: nombre corto, letra y color */
+const datosAlmacen = (a: Almacen) => {
+  if (a.tipo === 'CENTRAL') return { nombre: 'Central', letra: 'C', color: '#EA580C' };
+  const esNorte = /n[-\s]?o/i.test(a.nombre) || a.nombre.toLowerCase().includes('norte');
+  return esNorte ? { nombre: 'Norte', letra: 'N', color: '#0891B2' } : { nombre: 'Este', letra: 'E', color: '#4F46E5' };
+};
+
+/** Ícono del vehículo tal como se dibuja en el mapa (visto desde arriba) */
+const MiniVehiculo: React.FC<{ tipo: string; color: string }> = ({ tipo, color }) => (
+  <svg viewBox="-20 -20 40 40" className="w-5 h-5 shrink-0" aria-hidden="true">
+    <VehiculoRealista tipo={tipo} color={color} />
+  </svg>
+);
+
+/** Ícono del almacén tal como se dibuja en el mapa (bodega con su letra) */
+const MiniBodega: React.FC<{ letra: string; color: string }> = ({ letra, color }) => (
+  <svg viewBox="-19 -19 46 46" className="w-5 h-5 shrink-0" aria-hidden="true">
+    <Bodega color={color} letra={letra} />
+  </svg>
+);
+
+/**
+ * Fila de una capa. El ojito es el control:
+ * - visible: ojo gris suave (no distrae)
+ * - oculto: ojo tachado en color, y la fila se atenúa, así se nota de un vistazo qué se apagó
+ */
+const FilaCapa: React.FC<{ etiqueta: string; detalle?: string; icono: React.ReactNode; visible: boolean; onAlternar: () => void }> = ({
+  etiqueta, detalle, icono, visible, onAlternar,
+}) => (
+  <div className="group flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-gray-50 transition-colors">
+    <span className={`transition-opacity ${visible ? '' : 'opacity-35 grayscale'}`}>{icono}</span>
+    <span className={`flex-1 min-w-0 truncate text-xs font-semibold ${visible ? 'text-(--color-ink-900)' : 'text-(--color-ink-400)'}`}>
+      {etiqueta}
+    </span>
+    {detalle && <span className="text-[10px] text-(--color-ink-400) shrink-0">{detalle}</span>}
+    <button
+      type="button"
+      onClick={onAlternar}
+      aria-pressed={visible}
+      aria-label={visible ? `Ocultar ${etiqueta} del mapa` : `Mostrar ${etiqueta} en el mapa`}
+      title={visible ? `Ocultar ${etiqueta} del mapa` : `Mostrar ${etiqueta} en el mapa`}
+      className={`shrink-0 rounded p-0.5 transition-colors ${
+        visible
+          ? 'text-(--color-ink-300) group-hover:text-(--color-ink-500) hover:bg-gray-100'
+          : 'text-(--color-brand-500) bg-(--color-brand-50) hover:bg-(--color-brand-100)'
+      }`}
+    >
+      {visible ? <Eye size={14} /> : <EyeOff size={14} />}
+    </button>
+  </div>
+);
+
+/** Título de una columna */
+const TituloGrupo: React.FC<{ titulo: string }> = ({ titulo }) => (
+  <div className="px-1.5 pb-1 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wide text-(--color-ink-500)">{titulo}</div>
+);
+
 const formatSoles = (valor: number) => `S/ ${valor.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, selectedUnidadCodigo, modo = 'simulacion' }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, selectedUnidadCodigo, filtros: filtrosProp, onCambiarFiltros, modo = 'simulacion' }) => {
   const esOperacion = modo === 'operacion';
   const [expandedSection, setExpandedSection] = useState<string | null>('resumen');
+  const [filtrosLocal, setFiltrosLocal] = useState<FiltrosPanel>(FILTROS_VACIOS);
+  const filtros = filtrosProp ?? filtrosLocal;
+  const setFiltros = (f: FiltrosPanel) => (onCambiarFiltros ? onCambiarFiltros(f) : setFiltrosLocal(f));
+  const visible = (capa: CapaMapa) => !filtros.ocultos.includes(capa);
+  const nOcultos = filtros.ocultos.length;
 
   // --- Registro de avería durante la simulación ---
   const [unidadAveria, setUnidadAveria] = useState('');
@@ -144,6 +219,56 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
           </p>
         </div>
       )}
+
+      {/* ===== Mostrar en el mapa: encender o apagar cada tipo de vehículo y cada almacén ===== */}
+      <div className="bg-white rounded-xl shadow-sm border border-(--color-line-200) px-3 py-3 mb-2 space-y-2.5">
+        <div className="flex items-center gap-2 px-1 text-sm font-bold text-(--color-ink-900)">
+          <Layers size={15} className="text-(--color-brand-500)" /> Mostrar en el mapa
+          {nOcultos > 0 && (
+            <button
+              type="button"
+              onClick={() => setFiltros(FILTROS_VACIOS)}
+              className="ml-auto text-[11px] font-semibold text-(--color-brand-500) hover:underline"
+              title="Volver a mostrar todo"
+            >
+              Ver todo ({nOcultos} oculto{nOcultos > 1 ? 's' : ''})
+            </button>
+          )}
+        </div>
+
+        {/* Dos columnas: vehículos a la izquierda y almacenes a la derecha */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-0.5">
+            <TituloGrupo titulo="Vehículos" />
+            {CAPAS_VEHICULO.map(({ capa, etiqueta, tipo, color }) => (
+              <FilaCapa
+                key={capa}
+                etiqueta={etiqueta}
+                detalle={`${unidades.filter((u) => u.tipoNombre === capa).length}`}
+                icono={<MiniVehiculo tipo={tipo} color={color} />}
+                visible={visible(capa)}
+                onAlternar={() => setFiltros(alternarCapa(filtros, capa))}
+              />
+            ))}
+          </div>
+
+          <div className="space-y-0.5">
+            <TituloGrupo titulo="Almacenes" />
+            {almacenes.map((alm) => {
+              const d = datosAlmacen(alm);
+              return (
+                <FilaCapa
+                  key={alm.codigo}
+                  etiqueta={d.nombre}
+                  icono={<MiniBodega letra={d.letra} color={d.color} />}
+                  visible={visible(capaAlmacen(alm))}
+                  onAlternar={() => setFiltros(alternarCapa(filtros, capaAlmacen(alm)))}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       {/* Registrar avería: en la operación diaria y en las simulaciones, porque las averías ocurren en plena marcha */}
       {/* Registrar avería (siempre visible; las averías se registran manualmente durante la simulación) */}

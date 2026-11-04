@@ -9,6 +9,7 @@ import { ReportePage } from './components/reportes/ReportePage';
 import { Play, Pause, Square, ChevronLeft, ChevronRight } from 'lucide-react';
 import { setBackend } from './api/client';
 import { simulacionApi } from './api/simulacionApi';
+import { FILTROS_VACIOS, type FiltrosPanel } from './hooks/filtros';
 
 import { useAlmacenes } from './hooks/useAlmacenes';
 import { useSimulacion } from './hooks/useSimulacion';
@@ -33,6 +34,8 @@ const botonControl =
 export const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState<Seccion>('configuracion');
   const [speed, setSpeed] = useState('1');
+
+  const [filtros, setFiltros] = useState<FiltrosPanel>(FILTROS_VACIOS);
 
   const { almacenes } = useAlmacenes(5000);
   const {
@@ -89,7 +92,7 @@ export const App: React.FC = () => {
       const unidad = unidades.find((u) => u.codigo === r.unidadCodigo);
       if (unidad?.estadoOperativo === 'AVERIADO') return null;
 
-      const paradas = [...r.paradas].filter((p) => p.destino).sort((a, b) => a.orden - b.orden);
+      const paradas = [...(r.paradas || [])].filter((p) => p.destino).sort((a, b) => a.orden - b.orden);
       const paradasPendientes = paradas.filter((p) => !p.entregada);
       const codigosPedidos: string[] = paradasPendientes
         .map((p) => p.codigoPedido)
@@ -150,11 +153,8 @@ export const App: React.FC = () => {
   const esOperacion = escenarioSel === 'DIA_A_DIA';
 
   // Panel derecho de la simulación: se puede ocultar para que el mapa ocupe más espacio
-  const [panelAbierto, setPanelAbierto] = usePersistente<boolean>(
-    'paqrap.panelDerechoAbierto',
-    true,
-    (v) => typeof v === 'boolean',
-  );
+  // Siempre arranca cerrado al entrar a la pantalla (el mapa se ve completo)
+  const [panelAbierto, setPanelAbierto] = useState(false);
 
   // El backend de simulación tiene UN solo motor y sus datos pertenecen al ÚLTIMO escenario
   // que lo inició (5D o colapso). Recordamos cuál fue.
@@ -371,17 +371,16 @@ export const App: React.FC = () => {
               )}
             </div>
 
-            {/* El mapa mantiene su tamaño. Al abrir el panel, mapa y panel se corren juntos
-                a la izquierda (el borde izquierdo del mapa sale de la vista); al cerrarlo, vuelven. */}
+            {/* El mapa mantiene su alto. Al abrir el panel, el mapa se achica (ya no se esconde
+                detrás del panel), así siempre se puede recorrer toda la ciudad. */}
             <div className="flex-1 min-h-0">
               <div className="relative h-full overflow-hidden rounded-xl">
-                <div
-                  className={`absolute inset-0 flex transition-transform duration-300 ease-in-out ${
-                    panelAbierto ? '-translate-x-[21rem]' : 'translate-x-0'
-                  }`}
-                >
-                  {/* Mapa: siempre del ancho completo del área */}
-                  <div className="w-full h-full shrink-0">
+                <div className="absolute inset-0 flex">
+                  {/* Mapa: se achica cuando el panel está abierto */}
+                  <div
+                    className="h-full shrink-0 transition-[width] duration-300 ease-in-out"
+                    style={{ width: panelAbierto ? 'calc(100% - 21rem)' : '100%' }}
+                  >
                     <MapaOperaciones
                       almacenes={almacenes}
                       unidades={sinDatos ? [] : unidades}
@@ -393,6 +392,7 @@ export const App: React.FC = () => {
                       escenario={NOMBRE_ESCENARIO[escenarioSel]}
                       pausado={estaPausada}
                       mostrarPorAtender={esOperacion}
+                      filtros={filtros}
                     />
                   </div>
 
@@ -406,6 +406,8 @@ export const App: React.FC = () => {
                       metricas={metricas}
                       selectedUnidadCodigo={selectedUnidadCodigo}
                       modo={esOperacion ? 'operacion' : 'simulacion'}
+                      filtros={filtros}
+                      onCambiarFiltros={setFiltros}
                     />
                   </div>
                 </div>

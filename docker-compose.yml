@@ -9,7 +9,7 @@ services:
       dockerfile: Dockerfile
     container_name: paqrap-app
     ports:
-      - "8080:8080"
+      - "8082:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=default
       - PAQRAP_MODO=OPERACION
@@ -26,7 +26,7 @@ services:
   app-simulacion:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile 
     container_name: paqrap-app-simulacion
     ports:
       - "8081:8080"

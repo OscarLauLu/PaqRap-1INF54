@@ -1,8 +1,9 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Almacen, BloqueoVial, Pedido, Ubicacion, UnidadTransporte } from '../../types';
-import { Info, Wrench } from 'lucide-react';
+import { Info, Maximize2, Minus, Plus, Wrench } from 'lucide-react';
 import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
+import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
 export interface RutaMapa {
@@ -28,6 +29,8 @@ interface MapaOperacionesProps {
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
   pausado?: boolean;
+  /** Filtros del panel derecho: lo filtrado allí también se oculta en el mapa */
+  filtros?: FiltrosPanel;
   /** En la operación diaria muestra pedidos por atender */
   mostrarPorAtender?: boolean;
 }
@@ -43,9 +46,12 @@ const parsePuntos = (texto: string): Array<[number, number]> =>
 const BASE = { x: -1, y: -1, w: 72, h: 52 };
 // Tamaño de los cuadros: 2 = cada cuadro de 1 km se ve el doble de grande que con la ciudad
 // completa en pantalla. Súbelo o bájalo (p. ej. 1.5 o 2.5) para ajustar el tamaño.
-const ESCALA = 1.2;
-const ANCHO_VISTA = BASE.w / ESCALA;
-const ALTO_VISTA = BASE.h / ESCALA;
+const ESCALA = 1.2; // zoom con el que arranca el mapa
+// Zoom: el usuario puede acercar o alejar de forma continua (rueda del mouse o botones + / −)
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 8;
+const anchoVista = (zoom: number) => BASE.w / zoom;
+const altoVista = (zoom: number) => BASE.h / zoom;
 
 
 // ===== Orientación de los vehículos (estilo GPS) =====
@@ -140,11 +146,6 @@ const puntoEn = (t: Trazado, s: number): { x: number; y: number; ang: number } =
 
 const limitar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
-/** Mantiene la vista dentro de la ciudad */
-const ajustarCentro = (x: number, y: number) => ({
-  x: limitar(x, BASE.x + ANCHO_VISTA / 2, BASE.x + BASE.w - ANCHO_VISTA / 2),
-  y: limitar(y, BASE.y + ALTO_VISTA / 2, BASE.y + BASE.h - ALTO_VISTA / 2),
-});
 
 export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   almacenes,
@@ -156,6 +157,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   onSelectUnidad,
   escenario,
   pausado = false,
+  filtros,
 }) => {
   const [showLeyenda, setShowLeyenda] = useState(false);
 
@@ -191,20 +193,98 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     return m;
   }, [rutas]);
 
-  // --- Desplazamiento arrastrando, como en Google Maps (sin zoom) ---
-  const [centro, setCentro] = useState({ x: BASE.x + BASE.w / 2, y: BASE.y + BASE.h / 2 });
+  // --- Desplazamiento arrastrando y zoom continuo, como en Google Maps ---
+  const CENTRO_INICIAL = { x: BASE.x + BASE.w / 2, y: BASE.y + BASE.h / 2 };
+  const [vista, setVista] = useState({ zoom: ESCALA, ...CENTRO_INICIAL });
+  const vistaRef = useRef(vista);
+  vistaRef.current = vista;
+  const centro = vista;
   const svgRef = useRef<SVGSVGElement>(null);
   const arrastre = useRef<{ px: number; py: number; cx: number; cy: number; movido: boolean } | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
+  const animZoom = useRef<number | null>(null);
 
   // Unidades del mapa (km) por píxel de pantalla. Con preserveAspectRatio "slice" el mapa llena
   // todo el recuadro (sin franjas vacías), así que manda el lado con más píxeles por km.
-  const kmPorPixel = () => {
+  const kmPorPixel = (zoom = vistaRef.current.zoom) => {
     const el = svgRef.current;
     if (!el) return 0;
     const r = el.getBoundingClientRect();
-    return Math.min(ANCHO_VISTA / r.width, ALTO_VISTA / r.height);
+    return Math.min(anchoVista(zoom) / r.width, altoVista(zoom) / r.height);
   };
+
+  /** Mantiene la vista dentro de la ciudad usando lo que realmente se ve en pantalla
+   *  (así se puede llegar a todos los bordes al arrastrar con zoom) */
+  const ajustarCentro = (x: number, y: number, zoom: number) => {
+    const r = svgRef.current?.getBoundingClientRect();
+    const k = kmPorPixel(zoom);
+    const visibleAncho = r && k ? r.width * k : anchoVista(zoom);
+    const visibleAlto = r && k ? r.height * k : altoVista(zoom);
+    return {
+      x: visibleAncho >= BASE.w ? BASE.x + BASE.w / 2 : limitar(x, BASE.x + visibleAncho / 2, BASE.x + BASE.w - visibleAncho / 2),
+      y: visibleAlto >= BASE.h ? BASE.y + BASE.h / 2 : limitar(y, BASE.y + visibleAlto / 2, BASE.y + BASE.h - visibleAlto / 2),
+    };
+  };
+
+  /** Cambia el zoom dejando fijo el punto del mapa que está bajo el cursor (px, py) */
+  const zoomEn = (nuevoZoom: number, px?: number, py?: number) => {
+    const el = svgRef.current;
+    if (!el) return;
+    const v = vistaRef.current;
+    const z = limitar(nuevoZoom, ZOOM_MIN, ZOOM_MAX);
+    const r = el.getBoundingClientRect();
+    const ox = (px ?? r.left + r.width / 2) - (r.left + r.width / 2);
+    const oy = (py ?? r.top + r.height / 2) - (r.top + r.height / 2);
+    const dk = kmPorPixel(v.zoom) - kmPorPixel(z);
+    setVista({ zoom: z, ...ajustarCentro(v.x + ox * dk, v.y + oy * dk, z) });
+  };
+
+  /** Zoom de los botones: avanza poco a poco durante 250 ms, sin saltos */
+  const zoomAnimado = (objetivo: number) => {
+    if (animZoom.current !== null) cancelAnimationFrame(animZoom.current);
+    const inicio = performance.now();
+    const z0 = vistaRef.current.zoom;
+    const z1 = limitar(objetivo, ZOOM_MIN, ZOOM_MAX);
+    const paso = (t: number) => {
+      const f = Math.min(1, (t - inicio) / 250);
+      zoomEn(z0 * Math.pow(z1 / z0, 1 - Math.pow(1 - f, 3)));
+      animZoom.current = f < 1 ? requestAnimationFrame(paso) : null;
+    };
+    animZoom.current = requestAnimationFrame(paso);
+  };
+
+  /** Vuelve a la vista inicial */
+  const vistaInicial = () => {
+    if (animZoom.current !== null) cancelAnimationFrame(animZoom.current);
+    setVista({ zoom: ESCALA, ...CENTRO_INICIAL });
+  };
+
+  // Al abrir o cerrar el panel cambia el tamaño del mapa: se reacomoda la vista
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observador = new ResizeObserver(() => {
+      const v = vistaRef.current;
+      setVista({ zoom: v.zoom, ...ajustarCentro(v.x, v.y, v.zoom) });
+    });
+    observador.observe(el);
+    return () => observador.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Rueda del mouse: se registra a mano (passive: false) para que la página no haga scroll
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const alGirar = (e: WheelEvent) => {
+      e.preventDefault();
+      // Continuo: el zoom cambia en proporción a cuánto gira la rueda
+      zoomEn(vistaRef.current.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+    };
+    el.addEventListener('wheel', alGirar, { passive: false });
+    return () => el.removeEventListener('wheel', alGirar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const alPresionar = (e: React.PointerEvent<SVGSVGElement>) => {
     arrastre.current = { px: e.clientX, py: e.clientY, cx: centro.x, cy: centro.y, movido: false };
@@ -222,7 +302,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       e.currentTarget.setPointerCapture(e.pointerId);
     }
     const k = kmPorPixel();
-    setCentro(ajustarCentro(a.cx - dx * k, a.cy - dy * k));
+    const z = vistaRef.current.zoom;
+    setVista({ zoom: z, ...ajustarCentro(a.cx - dx * k, a.cy - dy * k, z) });
   };
 
   const alSoltar = () => {
@@ -230,6 +311,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     setArrastrando(false);
   };
 
+  const ANCHO_VISTA = anchoVista(vista.zoom);
+  const ALTO_VISTA = altoVista(vista.zoom);
   const viewBox = `${centro.x - ANCHO_VISTA / 2} ${centro.y - ALTO_VISTA / 2} ${ANCHO_VISTA} ${ALTO_VISTA}`;
 
   // En el mapa se dibujan los pedidos ya asignados a un vehículo: planificados, en ruta, o que
@@ -456,7 +539,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         })}
 
         {/* Almacenes: bodega con su letra */}
-        {almacenes.map((alm) => {
+        {almacenes.filter((alm) => pasaFiltroAlmacen(alm, filtros)).map((alm) => {
           const ax = toSvgX(alm.ubicacion.posX);
           const ay = toSvgY(alm.ubicacion.posY);
           const esNoroeste = /n[-\s]?o/i.test(alm.nombre) || alm.nombre.toLowerCase().includes('norte');
@@ -478,7 +561,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         {(() => {
           // Vehículos detenidos en el mismo punto se separan un poco en círculo para no taparse
           const grupos = new Map<string, UnidadTransporte[]>();
-          visibles.forEach((u) => {
+          visibles.filter((u) => pasaFiltroUnidad(u, filtros)).forEach((u) => {
             const k = `${u.ubicacionActual.posX},${u.ubicacionActual.posY}`;
             grupos.set(k, [...(grupos.get(k) ?? []), u]);
           });
@@ -584,6 +667,19 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       <div className="absolute top-3 right-4 flex flex-col items-center select-none pointer-events-none opacity-80">
         <span className="text-xs font-black text-gray-800 leading-none mb-0.5">N</span>
         <svg className="w-3 h-5 fill-gray-800" viewBox="0 0 24 36"><polygon points="12,0 20,20 12,14 4,20" /></svg>
+      </div>
+
+      {/* Controles de zoom: acercar, alejar y volver a la vista inicial */}
+      <div className="absolute top-12 right-3 z-10 flex flex-col rounded-lg border border-gray-300 bg-white/90 shadow-sm overflow-hidden">
+        <button type="button" onClick={() => zoomAnimado(vista.zoom * 1.5)} title="Acercar" className="p-1.5 hover:bg-white text-gray-700">
+          <Plus className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => zoomAnimado(vista.zoom / 1.5)} title="Alejar" className="p-1.5 hover:bg-white text-gray-700 border-t border-gray-200">
+          <Minus className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={vistaInicial} title="Vista inicial" className="p-1.5 hover:bg-white text-gray-700 border-t border-gray-200">
+          <Maximize2 className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Botón de leyenda: en la esquina inferior derecha, flotando sobre el mapa (no lo mueve) */}
