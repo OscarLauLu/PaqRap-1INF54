@@ -89,7 +89,7 @@ export const App: React.FC = () => {
       const unidad = unidades.find((u) => u.codigo === r.unidadCodigo);
       if (unidad?.estadoOperativo === 'AVERIADO') return null;
 
-      const paradas = [...r.paradas].filter((p) => p.destino).sort((a, b) => a.orden - b.orden);
+      const paradas = [...(r.paradas || [])].filter((p) => p.destino).sort((a, b) => a.orden - b.orden);
       const paradasPendientes = paradas.filter((p) => !p.entregada);
       const codigosPedidos: string[] = paradasPendientes
         .map((p) => p.codigoPedido)
