@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, Clock, MapPin, Truck, AlertCircle, AlertTriangle, DollarSign, Bike as BikeIcon, Car as CarIcon, Wrench, Save, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, AlertCircle, AlertTriangle, CheckCircle2, ClipboardList, Car as CarIcon, Siren, Wrench, Save, Loader2 } from 'lucide-react';
 import { RelojSimuladoData, Almacen, UnidadTransporte, Pedido, MetricasSimulacion, ESTADO_PEDIDO_LABEL } from '../../types';
 import type { TipoAveria } from '../../types/registro';
 import { averiasApi } from '../../api/averiasApi';
@@ -74,10 +74,10 @@ const FilaCapa: React.FC<{ etiqueta: string; detalle?: string; icono: React.Reac
 }) => (
   <div className="group flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-gray-50 transition-colors">
     <span className={`transition-opacity ${visible ? '' : 'opacity-35 grayscale'}`}>{icono}</span>
-    <span className={`flex-1 min-w-0 truncate text-xs font-semibold ${visible ? 'text-(--color-ink-900)' : 'text-(--color-ink-400)'}`}>
+    <span className={`flex-1 min-w-0 truncate text-[13px] font-semibold ${visible ? 'text-(--color-ink-900)' : 'text-(--color-ink-500)'}`}>
       {etiqueta}
     </span>
-    {detalle && <span className="text-[10px] text-(--color-ink-400) shrink-0">{detalle}</span>}
+    {detalle && <span className="text-[11px] text-(--color-ink-500) shrink-0">{detalle}</span>}
     <button
       type="button"
       onClick={onAlternar}
@@ -86,7 +86,7 @@ const FilaCapa: React.FC<{ etiqueta: string; detalle?: string; icono: React.Reac
       title={visible ? `Ocultar ${etiqueta} del mapa` : `Mostrar ${etiqueta} en el mapa`}
       className={`shrink-0 rounded p-0.5 transition-colors ${
         visible
-          ? 'text-(--color-ink-300) group-hover:text-(--color-ink-500) hover:bg-gray-100'
+          ? 'text-(--color-ink-400) group-hover:text-(--color-ink-500) hover:bg-gray-100'
           : 'text-(--color-brand-500) bg-(--color-brand-50) hover:bg-(--color-brand-100)'
       }`}
     >
@@ -97,14 +97,80 @@ const FilaCapa: React.FC<{ etiqueta: string; detalle?: string; icono: React.Reac
 
 /** Título de una columna */
 const TituloGrupo: React.FC<{ titulo: string }> = ({ titulo }) => (
-  <div className="px-1.5 pb-1 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wide text-(--color-ink-500)">{titulo}</div>
+  <div className="px-1.5 pb-1 border-b border-gray-100 text-xs font-bold uppercase tracking-wide text-(--color-ink-500)">{titulo}</div>
 );
+
+/**
+ * Tarjeta del panel: todas comparten el mismo encabezado (ícono azul + título en negrita + flecha).
+ * Abierta: borde azul suave y encabezado celeste, para saber cuál estás viendo.
+ * "extra" se muestra a la derecha del título (por ejemplo, el enlace "Ver todo").
+ */
+const Tarjeta: React.FC<{
+  titulo: string;
+  Icono: React.ElementType;
+  abierta: boolean;
+  onToggle: () => void;
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ titulo, Icono, abierta, onToggle, extra, children }) => (
+  <div
+    className={`rounded-xl border bg-white shadow-sm overflow-hidden transition-colors ${
+      abierta ? 'border-(--color-brand-500)/40' : 'border-(--color-line-200)'
+    }`}
+  >
+    <div className={`flex items-center gap-2 pr-3 transition-colors ${abierta ? 'bg-(--color-brand-50)' : 'hover:bg-gray-50'}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={abierta}
+        className="flex-1 min-w-0 flex items-center gap-2 pl-4 py-3 text-left"
+      >
+        <Icono size={16} className="text-(--color-brand-500) shrink-0" />
+        <span className="flex-1 min-w-0 truncate text-sm font-bold text-(--color-ink-900)">{titulo}</span>
+      </button>
+      {extra}
+      <button type="button" onClick={onToggle} aria-label={abierta ? `Cerrar ${titulo}` : `Abrir ${titulo}`} className="shrink-0 p-0.5">
+        {abierta ? <ChevronUp size={18} className="text-(--color-brand-500)" /> : <ChevronDown size={18} className="text-(--color-ink-500)" />}
+      </button>
+    </div>
+    {abierta && <div className="px-4 pt-3 pb-4">{children}</div>}
+  </div>
+);
+
+/** Ícono "S/" (la operación es en soles; el ícono de dólar no corresponde) */
+const IconoSoles: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
+  <span
+    className={`inline-flex items-center justify-center font-extrabold leading-none shrink-0 ${className}`}
+    style={{ width: size, height: size, fontSize: size * 0.68 }}
+    aria-hidden="true"
+  >
+    S/
+  </span>
+);
+
+// Costo por km de cada tipo de vehículo (enunciado): auto S/ 8, moto S/ 6, bicicleta S/ 3
+const COSTO_KM: Record<string, number> = { Auto: 8, Moto: 6, Bicicleta: 3 };
+
+// Criticidad de los pedidos (mismos colores que los pines del mapa)
+const CRITICIDAD = [
+  { valor: 'VERDE', texto: 'A tiempo', color: '#22B957' },
+  { valor: 'AMBAR', texto: 'En riesgo', color: '#F5B900' },
+  { valor: 'ROJO', texto: 'Crítico', color: '#E53935' },
+];
+
+/** Lee el primer campo con valor entre varios nombres posibles (el backend puede llamarlos distinto) */
+const campo = (obj: object, nombres: string[]): unknown => {
+  const o = obj as Record<string, unknown>;
+  for (const n of nombres) if (o[n] !== undefined && o[n] !== null && o[n] !== '') return o[n];
+  return undefined;
+};
 
 const formatSoles = (valor: number) => `S/ ${valor.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, selectedUnidadCodigo, filtros: filtrosProp, onCambiarFiltros, modo = 'simulacion' }) => {
-  const esOperacion = modo === 'operacion';
-  const [expandedSection, setExpandedSection] = useState<string | null>('resumen');
+export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, filtros: filtrosProp, onCambiarFiltros }) => {
+  // El detalle de cada vehículo, almacén y pedido se ve en el mapa: al hacer clic en su ícono se abre un popup.
+  // Tarjetas abiertas (pueden ser varias). Al inicio solo "Mostrar en el mapa".
+  const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set(['mapa']));
   const [filtrosLocal, setFiltrosLocal] = useState<FiltrosPanel>(FILTROS_VACIOS);
   const filtros = filtrosProp ?? filtrosLocal;
   const setFiltros = (f: FiltrosPanel) => (onCambiarFiltros ? onCambiarFiltros(f) : setFiltrosLocal(f));
@@ -164,10 +230,14 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
   };
 
   const toggleSection = (section: string) => {
-    setExpandedSection(prev => (prev === section ? null : section));
+    setAbiertas((prev) => {
+      const sig = new Set(prev);
+      if (sig.has(section)) sig.delete(section);
+      else sig.add(section);
+      return sig;
+    });
   };
 
-  const selectedUnidad = selectedUnidadCodigo ? unidades.find(u => u.codigo === selectedUnidadCodigo) : null;
   const autos = unidades.filter(u => u.tipoNombre === 'Auto');
   const motos = unidades.filter(u => u.tipoNombre === 'Moto');
   const bicis = unidades.filter(u => u.tipoNombre === 'Bicicleta');
@@ -190,28 +260,33 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
   const porAtender = pedidos.filter(p => p.estado === 'REGISTRADO').length;
 
   const pctCumplimiento = totalPedidos > 0 ? (entregados / totalPedidos) * 100 : 0;
+  const reasignados = pedidos.filter(p => p.estado === 'REASIGNADO').length;
 
-  const Accordion = ({ title, id, children }: { title: string; id: string; children: React.ReactNode }) => (
-    <div className="bg-white rounded-xl shadow-sm border border-(--color-line-200) overflow-hidden mb-2">
-      <button
-        className="w-full px-4 py-3 flex justify-between items-center text-(--color-ink-700) font-semibold hover:bg-gray-50/50"
-        onClick={() => toggleSection(id)}
-      >
-        <span className="text-sm">{title}</span>
-        {expandedSection === id ? <ChevronUp size={18} className="text-(--color-ink-400)" /> : <ChevronDown size={18} className="text-(--color-ink-400)" />}
-      </button>
-      {expandedSection === id && <div className="px-4 pb-4 bg-white">{children}</div>}
-    </div>
-  );
+  // Pedidos aún no entregados, por criticidad (lo más importante del caso: entregar dentro del plazo)
+  const activos = pedidos.filter(p => p.estado !== 'ENTREGADO');
+  const porCriticidad = (c: string) => activos.filter(p => p.criticidad === c).length;
+  const enRiesgo = activos
+    .filter(p => p.criticidad === 'ROJO' || p.criticidad === 'AMBAR')
+    .sort((a, b) => (a.criticidad === b.criticidad ? 0 : a.criticidad === 'ROJO' ? -1 : 1));
+
+  // Costo por tipo, km recorridos (costo ÷ S/ por km) y costo por entrega
+  const costos = [
+    { tipo: 'Auto', etiqueta: 'Autos', costo: metricas.costoAuto, color: '#2563EB' },
+    { tipo: 'Moto', etiqueta: 'Motos', costo: metricas.costoMoto, color: '#9333EA' },
+    { tipo: 'Bicicleta', etiqueta: 'Bicicletas', costo: metricas.costoBici, color: '#EC4899' },
+  ].map(c => ({ ...c, km: c.costo / COSTO_KM[c.tipo] }));
+  const costoTotal = metricas.costoAcumuladoTotal;
+  const kmTotal = costos.reduce((s, c) => s + c.km, 0);
+  const costoPorEntrega = entregados > 0 ? costoTotal / entregados : 0;
 
   return (
-    <div className="w-80 h-full flex-shrink-0 space-y-3 overflow-y-auto pr-2 scrollbar-thin">
+    <div className="w-full h-full flex-shrink-0 space-y-3 overflow-y-auto pr-2 scrollbar-thin">
       {metricas.instanteColapso && (
         <div className="bg-red-50 border border-red-300 rounded-xl p-3 text-center mb-2">
           <div className="flex items-center justify-center gap-2 text-red-700 font-bold text-sm">
             <AlertTriangle size={16} /> Colapso logístico
           </div>
-          <p className="text-xs text-red-600 mt-1">
+          <p className="text-[13px] text-red-600 mt-1">
             Un pedido incumplió su plazo. Simulación detenida
             {typeof metricas.volumenPedidosColapso === 'number' && (
               <> con {metricas.volumenPedidosColapso} pedido(s) activos en ese instante.</>
@@ -221,23 +296,26 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
       )}
 
       {/* ===== Mostrar en el mapa: encender o apagar cada tipo de vehículo y cada almacén ===== */}
-      <div className="bg-white rounded-xl shadow-sm border border-(--color-line-200) px-3 py-3 mb-2 space-y-2.5">
-        <div className="flex items-center gap-2 px-1 text-sm font-bold text-(--color-ink-900)">
-          <Layers size={15} className="text-(--color-brand-500)" /> Mostrar en el mapa
-          {nOcultos > 0 && (
+      <Tarjeta
+        titulo="Mostrar en el mapa"
+        Icono={Layers}
+        abierta={abiertas.has('mapa')}
+        onToggle={() => toggleSection('mapa')}
+        extra={
+          nOcultos > 0 ? (
             <button
               type="button"
               onClick={() => setFiltros(FILTROS_VACIOS)}
-              className="ml-auto text-[11px] font-semibold text-(--color-brand-500) hover:underline"
+              className="shrink-0 text-xs font-semibold text-(--color-brand-500) hover:underline"
               title="Volver a mostrar todo"
             >
-              Ver todo ({nOcultos} oculto{nOcultos > 1 ? 's' : ''})
+              Ver todo ({nOcultos})
             </button>
-          )}
-        </div>
-
+          ) : undefined
+        }
+      >
         {/* Dos columnas: vehículos a la izquierda y almacenes a la derecha */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-[1.15fr_1fr] gap-3">
           <div className="space-y-0.5">
             <TituloGrupo titulo="Vehículos" />
             {CAPAS_VEHICULO.map(({ capa, etiqueta, tipo, color }) => (
@@ -268,17 +346,15 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
             })}
           </div>
         </div>
-      </div>
+      </Tarjeta>
 
       {/* Registrar avería: en la operación diaria y en las simulaciones, porque las averías ocurren en plena marcha */}
       {/* Registrar avería (siempre visible; las averías se registran manualmente durante la simulación) */}
-      <div className="bg-white rounded-xl shadow-sm border border-(--color-line-200) p-4 mb-2 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-bold text-(--color-ink-900)">
-          <Wrench size={16} className="text-(--color-brand-500)" /> Registrar avería
-        </div>
+      <Tarjeta titulo="Registrar avería" Icono={Wrench} abierta={abiertas.has('averia')} onToggle={() => toggleSection('averia')}>
+      <div className="space-y-3">
 
         <label className="block">
-          <span className="block text-xs font-semibold text-(--color-ink-500) mb-1">Unidad</span>
+          <span className="block text-[13px] font-semibold text-(--color-ink-500) mb-1">Unidad</span>
           <input
             type="text"
             value={unidadAveria}
@@ -291,7 +367,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
         </label>
 
         <label className="block">
-          <span className="block text-xs font-semibold text-(--color-ink-500) mb-1">Tipo de avería</span>
+          <span className="block text-[13px] font-semibold text-(--color-ink-500) mb-1">Tipo de avería</span>
           <select
             value={tipoAveria}
             onChange={(e) => setTipoAveria(e.target.value as TipoAveria)}
@@ -304,7 +380,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
           </select>
         </label>
 
-        <p className="text-[11px] text-(--color-ink-400)">
+        <p className="text-xs text-(--color-ink-500)">
           Se registra en la ubicación actual de la unidad y con la hora de la simulación.
         </p>
 
@@ -319,35 +395,84 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
         </button>
 
         {avisoAveria && (
-          <p className={`text-xs rounded-md px-2.5 py-2 ${avisoAveria.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          <p className={`text-[13px] rounded-md px-2.5 py-2 ${avisoAveria.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
             {avisoAveria.texto}
           </p>
         )}
       </div>
+      </Tarjeta>
 
 
-      <Accordion title="Resumen de pedidos" id="resumen">
+      {/* ===== Resumen de pedidos: avance, etapas y criticidad de lo que falta entregar ===== */}
+      <Tarjeta titulo="Resumen de pedidos" Icono={ClipboardList} abierta={abiertas.has('resumen')} onToggle={() => toggleSection('resumen')}>
         <div className="space-y-3">
-          <div className="flex items-center space-x-2">
-            <Clock size={20} className="text-(--color-ink-700)" />
-            <span className="font-bold text-(--color-ink-900) text-lg">Cumplimiento</span>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-green-600" />
+            <span className="font-bold text-(--color-ink-900)">Entregados</span>
             <span className="ml-auto font-bold text-(--color-brand-500) text-lg">{pctCumplimiento.toFixed(1)} %</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div className="bg-(--color-brand-500) h-2 rounded-full" style={{ width: `${pctCumplimiento}%` }}></div>
           </div>
-          <div className="pt-2 space-y-1.5 text-xs text-(--color-ink-500)">
-            <div className="flex justify-between font-bold text-sm text-(--color-ink-900)"><span className="font-semibold">Total</span> <span className="text-(--color-brand-500)">{totalPedidos}</span></div>
-            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.REGISTRADO}</span> <span>{porAtender}</span></div>
-            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.PLANIFICADO}</span> <span>{planificados}</span></div>
-            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.EN_RUTA}</span> <span>{enRuta}</span></div>
-            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.ENTREGADO}</span> <span>{entregados}</span></div>
+          <p className="text-xs text-(--color-ink-500) -mt-1">{entregados} de {totalPedidos} pedidos</p>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[13px] text-(--color-ink-500)">
+            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.REGISTRADO}</span> <span className="font-semibold text-(--color-ink-900)">{porAtender}</span></div>
+            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.PLANIFICADO}</span> <span className="font-semibold text-(--color-ink-900)">{planificados}</span></div>
+            <div className="flex justify-between"><span>{ESTADO_PEDIDO_LABEL.EN_RUTA}</span> <span className="font-semibold text-(--color-ink-900)">{enRuta}</span></div>
+            <div className="flex justify-between"><span>Reasignados</span> <span className="font-semibold text-(--color-ink-900)">{reasignados}</span></div>
+          </div>
+
+          {/* Criticidad de los pedidos que faltan entregar (semáforo, igual que los pines del mapa) */}
+          <div className="pt-2 border-t border-gray-100">
+            <span className="block text-xs font-semibold text-(--color-ink-500) mb-1.5">Pendientes por criticidad ({activos.length})</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {CRITICIDAD.map(c => (
+                <div key={c.valor} className="rounded-lg border border-gray-100 px-2 py-1.5 text-center">
+                  <div className="text-base font-bold" style={{ color: c.color }}>{porCriticidad(c.valor)}</div>
+                  <div className="text-[11px] text-(--color-ink-500)">{c.texto}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </Accordion>
+      </Tarjeta>
 
-      <Accordion title="Vehículos" id="vehiculos">
-        <table className="w-full text-xs text-(--color-ink-500) text-center">
+      {/* ===== Pedidos en riesgo: los que hay que vigilar para no incumplir el plazo ===== */}
+      <Tarjeta
+        titulo={`Pedidos en riesgo (${enRiesgo.length})`}
+        Icono={Siren}
+        abierta={abiertas.has('riesgo')}
+        onToggle={() => toggleSection('riesgo')}
+      >
+        {enRiesgo.length === 0 ? (
+          <p className="text-[13px] text-(--color-ink-500) text-center py-2">Ningún pedido en riesgo de incumplir su plazo.</p>
+        ) : (
+          <div className="space-y-1 max-h-56 overflow-y-auto -mx-1 px-1">
+            {enRiesgo.map(p => {
+              const c = CRITICIDAD.find(x => x.valor === p.criticidad);
+              const limite = campo(p, ['fechaHoraLimite', 'fechaLimite', 'plazoLimite', 'horaLimite', 'fechaEntregaLimite']);
+              return (
+                <div key={p.codigo} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[13px] hover:bg-gray-50">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c?.color }} />
+                  <span className="font-semibold text-(--color-ink-900) w-20 truncate">{p.codigo}</span>
+                  <span className="text-(--color-ink-500) flex-1 truncate">{ESTADO_PEDIDO_LABEL[p.estado] ?? p.estado}</span>
+                  {limite !== undefined && (
+                    <span className="text-[11px] text-(--color-ink-500) shrink-0">
+                      {new Date(String(limite)).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                  <span className="text-[11px] font-semibold shrink-0" style={{ color: c?.color }}>{c?.texto}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Tarjeta>
+
+      {/* ===== Vehículos: estado de la flota por tipo ===== */}
+      <Tarjeta titulo="Vehículos" Icono={CarIcon} abierta={abiertas.has('vehiculos')} onToggle={() => toggleSection('vehiculos')}>
+        <table className="w-full text-[13px] text-(--color-ink-500) text-center">
           <thead>
             <tr className="border-b border-gray-100">
               <th className="text-left py-1 font-semibold"></th>
@@ -358,97 +483,71 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-gray-50">
-              <td className="text-left py-1.5"><CarIcon size={14} className="text-(--color-ink-700)" /></td>
-              <td>{aCount.disp}</td><td>{aCount.ruta}</td><td>{aCount.ave}</td><td className="font-bold text-(--color-ink-900)">{aCount.tot}</td>
-            </tr>
-            <tr className="border-b border-gray-50">
-              <td className="text-left py-1.5"><Truck size={14} className="text-(--color-ink-700)" /></td>
-              <td>{mCount.disp}</td><td>{mCount.ruta}</td><td>{mCount.ave}</td><td className="font-bold text-(--color-ink-900)">{mCount.tot}</td>
-            </tr>
-            <tr>
-              <td className="text-left py-1.5"><BikeIcon size={14} className="text-(--color-ink-700)" /></td>
-              <td>{bCount.disp}</td><td>{bCount.ruta}</td><td>{bCount.ave}</td><td className="font-bold text-(--color-ink-900)">{bCount.tot}</td>
-            </tr>
+            {([
+              ['Auto', 'Autos', aCount],
+              ['Moto', 'Motos', mCount],
+              ['Bicicleta', 'Bicicletas', bCount],
+            ] as const).map(([tipo, etiqueta, c], i) => (
+              <tr key={tipo} className={i < 2 ? 'border-b border-gray-50' : ''}>
+                <td className="text-left py-1.5" title={etiqueta}>
+                  <MiniVehiculo tipo={tipo} color={CAPAS_VEHICULO.find(v => v.tipo === tipo)?.color ?? '#64748B'} />
+                </td>
+                <td>{c.disp}</td><td>{c.ruta}</td><td>{c.ave}</td><td className="font-bold text-(--color-ink-900)">{c.tot}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
-      </Accordion>
+      </Tarjeta>
 
-      <Accordion title="Stock de almacenes" id="almacenes">
-        <div className="space-y-2 text-xs">
-          {almacenes.map(alm => (
-            <div key={alm.codigo} className="border border-(--color-brand-100) rounded-lg p-2 flex justify-between items-center text-(--color-brand-700) font-semibold bg-white">
-              <span className="flex items-center gap-1"><MapPin size={12} />{alm.nombre}</span>
-              <span>
-                {alm.stockActual === null ? (
-                  <span className="flex items-center"><span className="text-(--color-brand-500) mr-1 text-[16px]">∞</span> Ilimitado</span>
-                ) : (
-                  `${alm.stockActual} / ${alm.capacidadMaxima ?? 1000}`
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      </Accordion>
-
-      <Accordion title="Incidencias" id="incidencias">
+      {/* ===== Incidencias ===== */}
+      <Tarjeta titulo="Incidencias" Icono={AlertTriangle} abierta={abiertas.has('incidencias')} onToggle={() => toggleSection('incidencias')}>
         <div className="space-y-3 text-sm text-(--color-ink-700)">
           <div className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
             <span className="flex items-center text-red-600 font-medium"><AlertCircle size={16} className="mr-2" /> Bloqueos ocurridos</span>
             <span className="font-bold">{metricas.bloqueosOcurridos}</span>
           </div>
           <div className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
-            <span className="flex items-center text-(--color-ink-700) font-medium"><AlertTriangle size={16} className="mr-2" /> Averías ocurridas</span>
+            <span className="flex items-center text-(--color-ink-700) font-medium"><Wrench size={16} className="mr-2" /> Averías ocurridas</span>
             <span className="font-bold">{metricas.averiasOcurridas}</span>
           </div>
         </div>
-      </Accordion>
+      </Tarjeta>
 
-      <Accordion title="Costo acumulado" id="costo">
-        <div className="space-y-1.5 text-xs text-(--color-ink-500)">
-          <div className="flex items-center justify-center gap-2 text-2xl font-extrabold text-(--color-ink-900) py-1">
-            <DollarSign size={20} className="text-(--color-brand-500)" />
-            {formatSoles(metricas.costoAcumuladoTotal)}
+      {/* ===== Costo acumulado (en soles): total, reparto por tipo, km y costo por entrega ===== */}
+      <Tarjeta titulo="Costo acumulado" Icono={IconoSoles} abierta={abiertas.has('costo')} onToggle={() => toggleSection('costo')}>
+        <div className="space-y-3 text-[13px]">
+          <div className="text-center">
+            <div className="text-2xl font-extrabold text-(--color-ink-900)">{formatSoles(costoTotal)}</div>
+            <div className="text-xs text-(--color-ink-500)">{kmTotal.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km recorridos</div>
           </div>
-          <div className="flex justify-between"><span>Autos</span><span>{formatSoles(metricas.costoAuto)}</span></div>
-          <div className="flex justify-between"><span>Motos</span><span>{formatSoles(metricas.costoMoto)}</span></div>
-          <div className="flex justify-between"><span>Bicicletas</span><span>{formatSoles(metricas.costoBici)}</span></div>
-        </div>
-      </Accordion>
 
-      {/* El detalle de vehículo y pedido solo se muestra en las simulaciones */}
-      {!esOperacion && (
-        <>
-      <Accordion title="Detalles del vehículo" id="detalle_vehiculo">
-        {selectedUnidad ? (
-          <div className="text-xs text-(--color-ink-500) space-y-2">
-            <div className="flex items-center bg-(--color-brand-50) rounded-lg p-2 mb-3">
-              <div className="bg-(--color-brand-100) p-2 rounded-md mr-3">
-                <Truck size={20} className="text-(--color-brand-700)" />
+          <div className="space-y-2">
+            {costos.map(c => (
+              <div key={c.tipo} className="flex items-center gap-2">
+                <MiniVehiculo tipo={c.tipo} color={c.color} />
+                <span className="w-16 text-(--color-ink-700) font-medium">{c.etiqueta}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-1.5 rounded-full" style={{ width: costoTotal > 0 ? `${(c.costo / costoTotal) * 100}%` : 0, backgroundColor: c.color }} />
+                </div>
+                <span className="w-20 text-right font-semibold text-(--color-ink-900)">{formatSoles(c.costo)}</span>
               </div>
-              <div>
-                <div className="font-bold text-(--color-ink-900) text-sm">{selectedUnidad.tipoNombre} {selectedUnidad.codigo}</div>
-                <div className="text-(--color-brand-500) font-semibold">{selectedUnidad.estadoOperativo.replace('_', ' ')}</div>
-              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+            <div className="rounded-lg bg-gray-50 px-2 py-1.5 text-center">
+              <div className="font-bold text-(--color-ink-900)">{formatSoles(costoPorEntrega)}</div>
+              <div className="text-[11px] text-(--color-ink-500)">por pedido entregado</div>
             </div>
-            <div className="flex justify-between"><span className="font-medium text-(--color-ink-400)">Capacidad utilizada</span> <span>{selectedUnidad.porcentajeCarga.toFixed(1)}%</span></div>
-            <div className="flex justify-between"><span className="font-medium text-(--color-ink-400)">Carga</span> <span>{selectedUnidad.cargaActual}/{selectedUnidad.capacidadMaxima}</span></div>
-            <div className="flex justify-between"><span className="font-medium text-(--color-ink-400)">Velocidad</span> <span>{selectedUnidad.velocidadPromedioKmH} km/h</span></div>
-            <div className="flex justify-between"><span className="font-medium text-(--color-ink-400)">Costo</span> <span>{formatSoles(selectedUnidad.costoPorKm)}/km</span></div>
-            {selectedUnidad.nombreConductor && (
-              <div className="flex justify-between"><span className="font-medium text-(--color-ink-400)">Conductor</span> <span>{selectedUnidad.nombreConductor}</span></div>
-            )}
+            <div className="rounded-lg bg-gray-50 px-2 py-1.5 text-center">
+              <div className="font-bold text-(--color-ink-900)">{kmTotal > 0 ? formatSoles(costoTotal / kmTotal) : formatSoles(0)}</div>
+              <div className="text-[11px] text-(--color-ink-500)">promedio por km</div>
+            </div>
           </div>
-        ) : (
-          <div className="text-xs text-(--color-ink-400) text-center py-2">Selecciona un vehículo en el mapa</div>
-        )}
-      </Accordion>
+          <p className="text-[11px] text-(--color-ink-500)">Tarifa por km: auto S/ 8 · moto S/ 6 · bicicleta S/ 3.</p>
+        </div>
+      </Tarjeta>
 
-      <Accordion title="Detalles de pedido" id="detalle_pedido">
-        <div className="text-xs text-(--color-ink-400) text-center py-2">Selecciona un pedido en el mapa</div>
-      </Accordion>
-        </>
-      )}
     </div>
   );
 };

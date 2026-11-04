@@ -6,6 +6,7 @@ import { RightPanel } from './components/panel/RightPanel';
 import { RegistroPage } from './components/registro/RegistroPage';
 import { ConfiguracionPage } from './components/configuracion/ConfiguracionPage';
 import { ReportePage } from './components/reportes/ReportePage';
+import { AlertaColapso } from './components/simulacion/AlertaColapso';
 import { Play, Pause, Square, ChevronLeft, ChevronRight } from 'lucide-react';
 import { setBackend } from './api/client';
 import { simulacionApi } from './api/simulacionApi';
@@ -376,10 +377,11 @@ export const App: React.FC = () => {
             <div className="flex-1 min-h-0">
               <div className="relative h-full overflow-hidden rounded-xl">
                 <div className="absolute inset-0 flex">
-                  {/* Mapa: se achica cuando el panel está abierto */}
+                  {/* Mapa: se achica cuando el panel está abierto (en pantallas grandes el panel es más ancho) */}
                   <div
-                    className="h-full shrink-0 transition-[width] duration-300 ease-in-out"
-                    style={{ width: panelAbierto ? 'calc(100% - 21rem)' : '100%' }}
+                    className={`h-full shrink-0 transition-[width] duration-300 ease-in-out ${
+                      panelAbierto ? 'w-[calc(100%-21rem)] 2xl:w-[calc(100%-24rem)]' : 'w-full'
+                    }`}
                   >
                     <MapaOperaciones
                       almacenes={almacenes}
@@ -396,8 +398,8 @@ export const App: React.FC = () => {
                     />
                   </div>
 
-                  {/* Panel derecho: en la operación diaria muestra menos tarjetas */}
-                  <div className="w-80 h-full shrink-0 ml-4" aria-hidden={!panelAbierto}>
+                  {/* Panel derecho: 320 px; en pantallas grandes (≥ 1536 px) 368 px para que se lea mejor */}
+                  <div className="w-80 2xl:w-[23rem] h-full shrink-0 ml-4" aria-hidden={!panelAbierto}>
                     <RightPanel
                       reloj={reloj}
                       almacenes={sinDatos ? [] : almacenes}
@@ -419,7 +421,7 @@ export const App: React.FC = () => {
                   aria-label={panelAbierto ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}
                   aria-expanded={panelAbierto}
                   className={`absolute top-1/2 -translate-y-1/2 z-30 w-4 h-14 flex items-center justify-center rounded-l-md bg-white border border-r-0 border-(--color-line-200) text-(--color-ink-400) hover:text-(--color-brand-500) shadow-sm transition-[right,color] duration-300 ease-in-out ${
-                    panelAbierto ? 'right-80' : 'right-0'
+                    panelAbierto ? 'right-80 2xl:right-[23rem]' : 'right-0'
                   }`}
                 >
                   {panelAbierto ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -427,6 +429,11 @@ export const App: React.FC = () => {
               </div>
             </div>
           </main>
+        )}
+
+        {/* Alerta grande de colapso logístico, al centro de la pantalla */}
+        {activeSection === 'simulacion' && (
+          <AlertaColapso metricas={metricas} visible={!sinDatos} onVerReporte={() => setActiveSection('reportes')} />
         )}
       </div>
     </div>
