@@ -31,6 +31,8 @@ interface MapaOperacionesProps {
   pausado?: boolean;
   /** Filtros del panel derecho: lo filtrado allí también se oculta en el mapa */
   filtros?: FiltrosPanel;
+  /** En la operación diaria muestra pedidos por atender */
+  mostrarPorAtender?: boolean;
 }
 
 /** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */

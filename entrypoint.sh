@@ -1,8 +1,13 @@
 #!/bin/sh
 set -e
 
+# Modo 0: Evaluación automatizada de desempeño (5D y Día a Día)
+if [ "$1" = "evaluacion" ] || [ "$1" = "eval" ] || [ "$1" = "test" ]; then
+    shift
+    exec java -jar /app/app.jar --evaluacion "$@"
+
 # Modo 1: Experimento formal 5D (ACO vs ALNS con réplicas pareadas)
-if [ "$1" = "experimento" ] || [ "$1" = "exp" ]; then
+elif [ "$1" = "experimento" ] || [ "$1" = "exp" ]; then
     shift
     exec java -jar /app/app.jar --experimento "$@"
 

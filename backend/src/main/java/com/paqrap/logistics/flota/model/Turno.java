@@ -74,14 +74,78 @@ public class Turno {
     }
 
     public static Turno turnoManana() {
-        return Turno.builder().horaInicio(LocalTime.of(7, 0)).horaFin(LocalTime.of(15, 0)).build();
+        return Turno.builder().id(1).horaInicio(LocalTime.of(7, 0)).horaFin(LocalTime.of(15, 0)).build();
     }
 
     public static Turno turnoTarde() {
-        return Turno.builder().horaInicio(LocalTime.of(15, 0)).horaFin(LocalTime.of(23, 0)).build();
+        return Turno.builder().id(2).horaInicio(LocalTime.of(15, 0)).horaFin(LocalTime.of(23, 0)).build();
     }
 
     public static Turno turnoNoche() {
-        return Turno.builder().horaInicio(LocalTime.of(23, 0)).horaFin(LocalTime.of(7, 0)).build();
+        return Turno.builder().id(3).horaInicio(LocalTime.of(23, 0)).horaFin(LocalTime.of(7, 0)).build();
+    }
+
+    /**
+     * Retorna el turno oficial (1, 2 o 3) activo para una hora dada (RF-43).
+     */
+    public static Turno obtenerTurnoActivo(LocalTime hora) {
+        if (hora == null) return turnoManana();
+        if (!hora.isBefore(LocalTime.of(7, 0)) && hora.isBefore(LocalTime.of(15, 0))) {
+            return turnoManana();
+        } else if (!hora.isBefore(LocalTime.of(15, 0)) && hora.isBefore(LocalTime.of(23, 0))) {
+            return turnoTarde();
+        } else {
+            return turnoNoche();
+        }
+    }
+
+    /**
+     * Retorna la hora de inicio de alimentación por defecto (60 min) cumpliendo
+     * con estar al menos 1h después del inicio y 1h antes del fin de turno (RF-44).
+     */
+    public LocalTime getHoraInicioAlimentacion() {
+        if (horaInicio != null && horaInicio.equals(LocalTime.of(7, 0))) {
+            return LocalTime.of(12, 0); // Mañana: 12:00 a 13:00
+        } else if (horaInicio != null && horaInicio.equals(LocalTime.of(15, 0))) {
+            return LocalTime.of(19, 0); // Tarde: 19:00 a 20:00
+        } else {
+            return LocalTime.of(3, 0);  // Noche: 03:00 a 04:00
+        }
+    }
+
+    /**
+     * Determina si una hora específica coincide con la ventana de alimentación obligatoria (RF-44).
+     */
+    public static boolean esHoraAlimentacion(LocalTime hora) {
+        if (hora == null) return false;
+        // Almuerzo: 12:00 a 13:00
+        if (!hora.isBefore(LocalTime.of(12, 0)) && hora.isBefore(LocalTime.of(13, 0))) return true;
+        // Cena: 19:00 a 20:00
+        if (!hora.isBefore(LocalTime.of(19, 0)) && hora.isBefore(LocalTime.of(20, 0))) return true;
+        // Refrigerio noche: 03:00 a 04:00
+        if (!hora.isBefore(LocalTime.of(3, 0)) && hora.isBefore(LocalTime.of(4, 0))) return true;
+        return false;
+    }
+
+    /**
+     * Ajusta el instante proyectado si el inicio o el intervalo se cruza con la hora de alimentación obligatoria (RF-44).
+     */
+    public static LocalDateTime ajustarPorAlimentacion(LocalDateTime inicio, long minutosDuracion) {
+        if (inicio == null) return null;
+        LocalDateTime tiempoActual = inicio;
+        if (esHoraAlimentacion(tiempoActual.toLocalTime())) {
+            int minRestantes = 60 - tiempoActual.getMinute();
+            tiempoActual = tiempoActual.plusMinutes(minRestantes);
+        }
+        LocalDateTime fin = tiempoActual.plusMinutes(minutosDuracion);
+        LocalTime hIni = tiempoActual.toLocalTime();
+        LocalTime hFin = fin.toLocalTime();
+        boolean cruzo12 = hIni.isBefore(LocalTime.of(12, 0)) && !hFin.isBefore(LocalTime.of(12, 0));
+        boolean cruzo19 = hIni.isBefore(LocalTime.of(19, 0)) && !hFin.isBefore(LocalTime.of(19, 0));
+        boolean cruzo03 = hIni.isBefore(LocalTime.of(3, 0)) && !hFin.isBefore(LocalTime.of(3, 0));
+        if (cruzo12 || cruzo19 || cruzo03 || esHoraAlimentacion(hFin)) {
+            fin = fin.plusMinutes(60);
+        }
+        return fin;
     }
 }

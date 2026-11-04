@@ -26,9 +26,11 @@ public class CrearPedidoDTO {
     private String nombreCliente;
 
     @Min(value = 0, message = "La coordenada X debe ser mayor o igual a 0")
+    @jakarta.validation.constraints.Max(value = 70, message = "La coordenada X debe estar dentro de la retícula (0..70)")
     private int destinoX;
 
     @Min(value = 0, message = "La coordenada Y debe ser mayor o igual a 0")
+    @jakarta.validation.constraints.Max(value = 50, message = "La coordenada Y debe estar dentro de la retícula (0..50)")
     private int destinoY;
 
     @Positive(message = "La cantidad de unidades debe ser un entero positivo mayor a cero")

@@ -33,6 +33,12 @@ public class ArchivoController {
     public ResponseEntity<Map<String, String>> subir(
             @RequestParam("archivo") MultipartFile archivo,
             @RequestParam String tipo) throws IOException {
+        if (!"pedidos".equalsIgnoreCase(tipo) && !"bloqueos".equalsIgnoreCase(tipo)) {
+            throw new IllegalArgumentException("Tipo de archivo no permitido: " + tipo + " (CP-ARC-005). Valores permitidos: 'pedidos', 'bloqueos'.");
+        }
+        if (archivo == null || archivo.isEmpty()) {
+            throw new IllegalArgumentException("El archivo proporcionado está vacío o ausente (CP-ARC-008).");
+        }
         String ruta = archivoStorageService.guardar(archivo, tipo);
         return ResponseEntity.ok(Map.of("rutaArchivo", ruta));
     }

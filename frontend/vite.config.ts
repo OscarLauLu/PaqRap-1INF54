@@ -6,10 +6,16 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host: true,
+    allowedHosts: ['paqrap-g9i.duckdns.org'],
     port: 5173,
+    hmr: {
+      host: 'paqrap-g9i.duckdns.org',
+      clientPort: 443,
+      protocol: 'wss'
+    },
     proxy: {
-      // Backend de SIMULACIÓN (5D y colapso): las llamadas que empiezan con /sim/api
-      // se envían al segundo backend y se les quita el "/sim" antes de llegar
+      // Backend de SIMULACIÓN (5D y colapso)
       '/sim/api': {
         target: process.env.API_SIM_URL || 'http://app-simulacion:8080',
         changeOrigin: true,
@@ -23,4 +29,3 @@ export default defineConfig({
     },
   },
 })
-
