@@ -173,7 +173,9 @@ public class Planificador {
                                                                List<UnidadTransporte> flota,
                                                                LocalDateTime instante) {
         if (planMantenimiento == null || instante == null) {
-            return algoritmoRuteo.construirSolucion(pedidosOrdenados, flota, redVial);
+            List<Ruta> directas = algoritmoRuteo.construirSolucion(pedidosOrdenados, flota, redVial);
+            alinearConInstante(directas, inicioDeSolucion(directas), instante);
+            return directas;
         }
         List<UnidadTransporte> candidatos = flota.stream()
                 .filter(u -> !planMantenimiento.estaEnMantenimiento(u.getCodigo(), instante))
@@ -195,6 +197,8 @@ public class Planificador {
                 usadas.add(codigo);
             }
         }
+        // Las rutas de la primera solución salen en el instante de planificación
+        alinearConInstante(validas, base, instante);
         if (sinAsignar.isEmpty()) {
             return validas;
         }
@@ -207,9 +211,37 @@ public class Planificador {
         if (!restantes.isEmpty()) {
             List<Ruta> reintento = algoritmoRuteo.construirSolucion(ordenarPorHolgura(sinAsignar, instante), restantes, redVial);
             LocalDateTime baseReintento = inicioDeSolucion(reintento);
-            reintento.stream().filter(r -> !cruzaMantenimiento(r, baseReintento, instante)).forEach(validas::add);
+            List<Ruta> reintentoValidas = reintento.stream()
+                    .filter(r -> !cruzaMantenimiento(r, baseReintento, instante))
+                    .collect(Collectors.toList());
+            alinearConInstante(reintentoValidas, baseReintento, instante);
+            validas.addAll(reintentoValidas);
         }
         return validas;
+    }
+
+    /**
+     * El algoritmo fecha sus rutas desde el pedido pendiente más antiguo, no desde ahora: una ruta
+     * planificada a las 09:00 salía "a las 08:08", y el motor daba por entregadas al instante las
+     * paradas cuya hora estimada ya había pasado (los vehículos aparecían de golpe a mitad de camino).
+     * Un vehículo no puede salir en el pasado: se corre toda la solución, con sus rutas encadenadas,
+     * para que la primera salga en {@code instante}. Los tiempos entre paradas no cambian.
+     *
+     * @param base instante en que el algoritmo hizo salir a la primera ruta
+     */
+    static void alinearConInstante(List<Ruta> rutas, LocalDateTime base, LocalDateTime instante) {
+        if (rutas == null || base == null || instante == null || !base.isBefore(instante)) return;
+        Duration corrimiento = Duration.between(base, instante);
+        for (Ruta r : rutas) {
+            if (r.getFechaHoraGeneracion() != null) {
+                r.setFechaHoraGeneracion(r.getFechaHoraGeneracion().plus(corrimiento));
+            }
+            for (ParadaRuta p : r.getParadas()) {
+                if (p.getHoraEstimadaLlegada() != null) {
+                    p.setHoraEstimadaLlegada(p.getHoraEstimadaLlegada().plus(corrimiento));
+                }
+            }
+        }
     }
 
     /**
