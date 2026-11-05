@@ -317,6 +317,9 @@ public class SimulacionSession {
             ejecutarPlanificacion(instanteActual, planificador, redVial, almacenRepo);
         }
 
+        // Carga que lleva cada vehículo tras las entregas y las rutas nuevas de este paso
+        actualizarCargas();
+
         // 4. Recarga diaria a las 23:59 (RF-20)
         LocalTime hora = reloj.horaSimulada();
         if (hora.getHour() == 23 && hora.getMinute() >= 50) {
@@ -380,6 +383,19 @@ public class SimulacionSession {
                     && u.getEstadoOperativo() == EstadoOperativo.EN_MANTENIMIENTO) {
                 u.setEstadoOperativo(EstadoOperativo.DISPONIBLE);
             }
+        }
+    }
+
+    /**
+     * Carga actual de cada vehículo = paquetes aún no entregados de su ruta en curso.
+     * Antes nadie actualizaba este campo y el mapa mostraba "0/8 paquetes" aunque el vehículo
+     * estuviera repartiendo.
+     */
+    void actualizarCargas() {
+        Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutas);
+        for (UnidadTransporte u : unidades) {
+            Ruta r = enCurso.get(u.getCodigo());
+            u.setCargaActual(r != null ? r.cargaPendiente() : 0);
         }
     }
 

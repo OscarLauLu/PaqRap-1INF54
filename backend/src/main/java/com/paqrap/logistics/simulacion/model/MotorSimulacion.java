@@ -329,6 +329,13 @@ public class MotorSimulacion {
             log.error("Error en planificación en instante {}: {}", instanteActual, e.getMessage());
         }
 
+        // --- Carga que lleva cada vehículo tras las entregas y las rutas nuevas de este paso ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> actualizarCargas());
+        } catch (Exception e) {
+            log.error("Error actualizando la carga de los vehículos en instante {}: {}", instanteActual, e.getMessage());
+        }
+
         // Recarga diaria de almacenes intermedios a las 23:59:59 (RF-20)
         try {
             LocalTime hora = reloj.horaSimulada();
@@ -419,6 +426,22 @@ public class MotorSimulacion {
                 averiaRepository.save(a);
                 averiasOcurridas++;
                 planificador.replanificarPorAveria(a);
+            }
+        }
+    }
+
+    /**
+     * Carga actual de cada vehículo = paquetes aún no entregados de su ruta en curso.
+     * Solo se guardan las unidades cuya carga cambió.
+     */
+    private void actualizarCargas() {
+        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutaRepository.findAll());
+        for (UnidadTransporte u : unidadRepository.findAll()) {
+            Ruta r = enCurso.get(u.getCodigo());
+            int carga = (r != null) ? r.cargaPendiente() : 0;
+            if (u.getCargaActual() != carga) {
+                u.setCargaActual(carga);
+                unidadRepository.save(u);
             }
         }
     }

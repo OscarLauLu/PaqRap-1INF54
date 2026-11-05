@@ -144,4 +144,45 @@ public class Ruta {
         }
         return cargaTotal > unidadTransporte.getTipo().getCapacidadMaxima();
     }
+
+    /**
+     * Paquetes que el vehículo todavía lleva en esta ruta: los de las paradas aún no entregadas.
+     * La carga se completa al salir del almacén, así que una ruta recién planificada lleva todo.
+     */
+    public int cargaPendiente() {
+        if (paradas == null || estado == EstadoRuta.COMPLETADA) {
+            return 0;
+        }
+        int carga = 0;
+        for (ParadaRuta parada : paradas) {
+            if (!parada.isEntregada() && parada.getPedido() != null) {
+                carga += parada.getPedido().getCantidadUnidades();
+            }
+        }
+        return carga;
+    }
+
+    /**
+     * Ruta en curso de cada unidad: si el algoritmo le encadenó varias, la más antigua sin completar.
+     * Sirve para saber qué carga lleva cada vehículo en este momento.
+     */
+    public static java.util.Map<String, Ruta> rutaEnCursoPorUnidad(java.util.Collection<Ruta> rutas) {
+        java.util.Map<String, Ruta> enCurso = new java.util.HashMap<>();
+        for (Ruta r : rutas) {
+            if (r == null || r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
+            String codigo = r.getUnidadTransporte().getCodigo();
+            Ruta actual = enCurso.get(codigo);
+            if (actual == null || esAnterior(r, actual)) {
+                enCurso.put(codigo, r);
+            }
+        }
+        return enCurso;
+    }
+
+    private static boolean esAnterior(Ruta a, Ruta b) {
+        if (a.getFechaHoraGeneracion() == null || b.getFechaHoraGeneracion() == null) {
+            return a.getId() != null && b.getId() != null && a.getId() < b.getId();
+        }
+        return a.getFechaHoraGeneracion().isBefore(b.getFechaHoraGeneracion());
+    }
 }
