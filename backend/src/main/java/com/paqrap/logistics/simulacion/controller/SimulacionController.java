@@ -129,7 +129,7 @@ public class SimulacionController {
     public ResponseEntity<Map<String, Object>> consultarReloj(
             @org.springframework.web.bind.annotation.RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
         com.paqrap.logistics.simulacion.model.SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
-        RelojSimulado reloj = (sesion != null) ? sesion.getReloj() : relojSimulado;
+        RelojSimulado reloj = relojSimulado;
         String estado = (sesion != null) ? sesion.getEstado().name() : motorSimulacion.getEstado().name();
         String escenario = (sesion != null && sesion.getEscenarioActual() != null)
                 ? sesion.getEscenarioActual().name()

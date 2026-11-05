@@ -30,11 +30,19 @@ type Seccion = 'registro' | 'configuracion' | 'simulacion' | 'reportes';
 
 // Estilo de los botones de control de la simulación (▶ ⏸ ■)
 const botonControl =
-  'w-11 h-9 flex items-center justify-center rounded-md border border-(--color-brand-500) bg-white text-(--color-ink-900) hover:bg-(--color-brand-50) transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+  'w-11 h-9 flex items-center justify-center rounded-md border border-brand-500 bg-white text-ink-900 hover:bg-brand-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 
 export const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState<Seccion>('configuracion');
   const [speed, setSpeed] = useState('1');
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('paqrap.activeSection');
+    } catch {
+      // ignorar
+    }
+  }, []);
 
   const [filtros, setFiltros] = useState<FiltrosPanel>(FILTROS_VACIOS);
 
@@ -226,19 +234,34 @@ export const App: React.FC = () => {
   const formatFecha = (isoString: string) => {
     if (!isoString) return '';
     const date = new Date(isoString);
-    return date.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString('es-PE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
   };
 
   // Tiempo transcurrido = instante actual − instante en que inició la simulación
-  // (no la hora del reloj: si empezó a las 06:00, a las 07:30 lleva 1 h 30 min).
+  // Muestra segundos, minutos y horas para dar visibilidad inmediata del avance.
   const getTranscurrido = () => {
-    if (!reloj.instanteActual || !reloj.instanteInicio) return '0 h';
+    if (!reloj.instanteActual || !reloj.instanteInicio) return '0 s';
     const ms = new Date(reloj.instanteActual).getTime() - new Date(reloj.instanteInicio).getTime();
-    if (!Number.isFinite(ms) || ms < 0) return '0 h';
-    const totalMin = Math.floor(ms / 60000);
+    if (!Number.isFinite(ms) || ms < 0) return '0 s';
+    const totalSeg = Math.floor(ms / 1000);
+    const totalMin = Math.floor(totalSeg / 60);
     const horas = Math.floor(totalMin / 60);
     const minutos = totalMin % 60;
-    return minutos > 0 ? `${horas} h ${minutos} min` : `${horas} h`;
+    const segundos = totalSeg % 60;
+    if (horas > 0) {
+      return minutos > 0 ? `${horas} h ${minutos} min` : `${horas} h`;
+    }
+    if (minutos > 0) {
+      return segundos > 0 ? `${minutos} min ${segundos} s` : `${minutos} min`;
+    }
+    return `${segundos} s`;
   };
 
   const diaActual = reloj.diaSimulado || 1;
@@ -251,7 +274,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-(--color-surface-50) text-(--color-ink-900)">
+    <div className="flex min-h-screen bg-surface-50 text-ink-900">
       <Sidebar activeSection={activeSection} onSelectSection={(s) => setActiveSection(s as Seccion)} />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -260,8 +283,8 @@ export const App: React.FC = () => {
           totalAlertas={0}
           isSimulating={motorActivo && !sinDatos}
           userName="Jones Ferdinand"
-          title={titulos[activeSection].title}
-          subtitle={titulos[activeSection].subtitle}
+          title={titulos[activeSection]?.title ?? 'PAQRAP'}
+          subtitle={titulos[activeSection]?.subtitle}
           showFinalizar={activeSection === 'simulacion' && !esOperacion}
         />
 
@@ -283,16 +306,16 @@ export const App: React.FC = () => {
             {/* Barra superior (sin tarjeta: va directo sobre el fondo, como el mockup) */}
             <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-sm">
               <div className="flex flex-wrap items-center gap-x-10 gap-y-2">
-                <div className="text-(--color-ink-400) font-semibold">
-                  Fecha: <span className="text-(--color-ink-900) font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
+                <div className="text-ink-400 font-semibold">
+                  Fecha: <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
                 </div>
 
-                <div className="flex items-center text-(--color-ink-400) font-semibold">
+                <div className="flex items-center text-ink-400 font-semibold">
                   <ClockIcon className="w-4 h-4 mr-1.5" /> Tiempo transcurrido:
-                  <span className="text-(--color-ink-900) font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
+                  <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
                 </div>
-                <div className="text-(--color-ink-400) font-semibold">
-                  Día: <span className="text-(--color-ink-900) font-bold ml-1">{diaActual}</span>
+                <div className="text-ink-400 font-semibold">
+                  Día: <span className="text-ink-900 font-bold ml-1">{diaActual}</span>
                 </div>
                 {/* La operación diaria corriendo se marca "En vivo"; cualquier escenario en pausa, "En pausa" */}
                 {esOperacion && motorCorriendo && (
@@ -336,7 +359,7 @@ export const App: React.FC = () => {
                     title={estaPausada ? 'En pausa: clic para continuar' : 'Pausar simulación'}
                     aria-label={estaPausada ? 'Continuar simulación' : 'Pausar simulación'}
                     aria-pressed={estaPausada}
-                    className={`${botonControl} ${estaPausada ? 'bg-(--color-brand-100)' : ''}`}
+                    className={`${botonControl} ${estaPausada ? 'bg-brand-100' : ''}`}
                   >
                     <Pause size={16} fill="currentColor" />
                   </button>
@@ -362,7 +385,7 @@ export const App: React.FC = () => {
                       });
                     }}
                     aria-label="Velocidad de la simulación"
-                    className="h-9 bg-white border border-(--color-brand-500) text-(--color-ink-900) rounded-md px-2 text-sm font-bold outline-none"
+                    className="h-9 bg-white border border-brand-500 text-ink-900 rounded-md px-2 text-sm font-bold outline-none"
                   >
                     <option value="0.5">0.5×</option>
                     <option value="1">1.0×</option>
@@ -420,7 +443,7 @@ export const App: React.FC = () => {
                   title={panelAbierto ? 'Ocultar panel' : 'Mostrar panel'}
                   aria-label={panelAbierto ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}
                   aria-expanded={panelAbierto}
-                  className={`absolute top-1/2 -translate-y-1/2 z-30 w-4 h-14 flex items-center justify-center rounded-l-md bg-white border border-r-0 border-(--color-line-200) text-(--color-ink-400) hover:text-(--color-brand-500) shadow-sm transition-[right,color] duration-300 ease-in-out ${
+                  className={`absolute top-1/2 -translate-y-1/2 z-30 w-4 h-14 flex items-center justify-center rounded-l-md bg-white border border-r-0 border-line-200 text-ink-400 hover:text-brand-500 shadow-sm transition-[right,color] duration-300 ease-in-out ${
                     panelAbierto ? 'right-80 2xl:right-[23rem]' : 'right-0'
                   }`}
                 >
