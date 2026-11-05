@@ -61,15 +61,12 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
           setError('El umbral Ámbar debe ser menor que el umbral Verde.');
           return;
         }
-        await fetch(`/api/mapa/semaforo?horasVerde=${horasVerde}&horasAmbar=${horasAmbar}`, { method: 'PUT' });
-        const configurado = await fetch('/api/simulacion/configurar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...FLOTA_POR_DEFECTO, fechaHoraInicio: `${fechaInicio}T${horaInicio}:00` }),
+        await simulacionApi.actualizarSemaforo(horasVerde, horasAmbar);
+        await simulacionApi.configurar({
+          ...FLOTA_POR_DEFECTO,
+          fechaHoraInicio: `${fechaInicio}T${horaInicio}:00`,
         });
-        if (!configurado.ok) throw new Error();
-        const iniciado = await fetch('/api/simulacion/iniciar?escenario=DIA_A_DIA', { method: 'POST' });
-        if (!iniciado.ok) throw new Error();
+        await simulacionApi.iniciarSimulacion('DIA_A_DIA');
         onSimulacionIniciada(escenario);
       } catch {
         setError('No se pudo iniciar la operación día a día. Verifica el backend e inténtalo de nuevo.');
