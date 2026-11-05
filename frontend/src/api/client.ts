@@ -43,9 +43,14 @@ export const apiClient = axios.create({
 
 // Antes de cada llamada: si la pantalla actual es de simulación, la ruta /api/... pasa a ser
 // /sim/api/..., y el proxy de Vite la envía al backend de simulación (puerto 8081).
+// Además se inyecta el encabezado X-Simulation-Session-Id para aislar la corrida por usuario/dispositivo.
 apiClient.interceptors.request.use((config) => {
-  if (backendActual === 'simulacion' && config.url?.startsWith('/api/')) {
-    config.url = `/sim${config.url}`;
+  if (backendActual === 'simulacion') {
+    if (config.url?.startsWith('/api/')) {
+      config.url = `/sim${config.url}`;
+    }
+    config.headers = config.headers || {};
+    config.headers['X-Simulation-Session-Id'] = getDeviceSessionId();
   }
   return config;
 });
