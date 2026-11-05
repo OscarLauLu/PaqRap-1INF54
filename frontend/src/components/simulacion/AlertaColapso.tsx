@@ -4,81 +4,100 @@ import type { MetricasSimulacion } from '../../types';
 
 interface Props {
   metricas: MetricasSimulacion;
-  /** Solo se muestra en la pantalla de simulación y si los datos son de este escenario */
+  /** true cuando el reloj ya informa que la simulación se detuvo por colapso (DETENIDA_POR_COLAPSO) */
+  detenidaPorColapso: boolean;
+  /** Solo se muestra en la pantalla del escenario de colapso */
   visible: boolean;
   /** Botón "Ver reporte": lleva a la página de Reportes */
   onVerReporte: () => void;
 }
 
-/** Lee el primer campo con valor entre varios nombres posibles (el backend puede llamarlos distinto) */
-const campo = (obj: object, nombres: string[]): unknown => {
-  const o = obj as Record<string, unknown>;
-  for (const n of nombres) if (o[n] !== undefined && o[n] !== null && o[n] !== '') return o[n];
-  return undefined;
-};
-
 /**
- * Alerta grande de colapso logístico, al centro de la pantalla.
- * Aparece una sola vez por colapso (si se cierra, no vuelve a salir para el mismo instante).
+ * Ventana de emergencia modal: el sistema colapsa en el instante en que UN pedido incumple su plazo
+ * y la simulación se detiene. Ocupa toda la pantalla en rojo y se queda hasta que el usuario decide
+ * (Ver reporte / Ver el mapa). Una vez cerrada no vuelve a salir para el mismo colapso.
  */
-export const AlertaColapso: React.FC<Props> = ({ metricas, visible, onVerReporte }) => {
-  const instante = metricas.instanteColapso ?? null;
-  const [cerradoPara, setCerradoPara] = useState<string | null>(null);
-  const abierta = visible && !!instante && cerradoPara !== instante;
+export const AlertaColapso: React.FC<Props> = ({ metricas, detenidaPorColapso, visible, onVerReporte }) => {
+  // Hay colapso si las métricas traen el instante o si el reloj ya informa la detención por colapso
+  const hayColapso = !!metricas.instanteColapso || detenidaPorColapso;
+  const [cerrada, setCerrada] = useState(false);
+  const abierta = visible && hayColapso && !cerrada;
 
-  // Esc cierra la alerta
+  // Al iniciar otra corrida (ya no hay colapso) la ventana queda lista para el próximo
+  const [habiaColapso, setHabiaColapso] = useState(hayColapso);
+  if (hayColapso !== habiaColapso) {
+    setHabiaColapso(hayColapso);
+    if (!hayColapso) setCerrada(false);
+  }
+
+  // Esc cierra la ventana
   useEffect(() => {
     if (!abierta) return;
-    const alTeclear = (e: KeyboardEvent) => { if (e.key === 'Escape') setCerradoPara(instante); };
+    const alTeclear = (e: KeyboardEvent) => { if (e.key === 'Escape') setCerrada(true); };
     window.addEventListener('keydown', alTeclear);
     return () => window.removeEventListener('keydown', alTeclear);
-  }, [abierta, instante]);
+  }, [abierta]);
 
-  if (!abierta || !instante) return null;
+  if (!abierta) return null;
 
-  const pedido = campo(metricas, ['codigoPedidoColapso', 'pedidoColapso', 'pedidoIncumplido']);
-  const fecha = new Date(instante).toLocaleString('es-PE', {
-    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+  const fecha = metricas.instanteColapso
+    ? new Date(metricas.instanteColapso).toLocaleString('es-PE', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    : null;
+  const cerrar = () => setCerrada(true);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-[2px] p-4" role="alertdialog" aria-modal="true" aria-labelledby="titulo-colapso">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        {/* Franja roja con el ícono */}
-        <div className="bg-red-600 px-6 py-5 text-center text-white">
-          <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-white/15 ring-4 ring-white/20 animate-pulse">
-            <AlertTriangle className="h-8 w-8" />
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-red-950/80 backdrop-blur-sm p-4"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="titulo-colapso"
+      aria-describedby="detalle-colapso"
+    >
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border-4 border-red-600 bg-white shadow-[0_0_80px_rgba(220,38,38,0.7)]">
+        {/* Cabecera de emergencia */}
+        <div className="bg-red-600 px-6 py-6 text-center text-white">
+          <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-white ring-8 ring-red-400/60 animate-pulse">
+            <AlertTriangle className="h-12 w-12 text-red-600" strokeWidth={2.5} />
           </div>
-          <h2 id="titulo-colapso" className="text-xl font-extrabold tracking-wide">¡Colapso logístico!</h2>
-          <p className="mt-1 text-sm text-white/90">Un pedido no pudo entregarse dentro de su plazo.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-red-100">Emergencia</p>
+          <h2 id="titulo-colapso" className="mt-1 text-3xl font-extrabold uppercase leading-tight">
+            Se llegó al colapso logístico
+          </h2>
+          <p id="detalle-colapso" className="mt-2 text-sm text-red-50">
+            Un pedido no pudo entregarse dentro de su plazo. La simulación se detuvo.
+          </p>
         </div>
 
         {/* Datos del colapso */}
-        <div className="px-6 py-5 space-y-3 text-sm">
-          <div className="flex justify-between gap-4">
-            <span className="text-(--color-ink-500)">Momento del colapso</span>
-            <span className="font-bold text-(--color-ink-900) text-right">{fecha}</span>
-          </div>
+        <div className="space-y-3 px-6 py-5 text-sm">
+          {fecha && (
+            <div className="flex justify-between gap-4 border-b border-red-100 pb-2">
+              <span className="text-gray-500">Momento del colapso</span>
+              <span className="text-right font-bold text-gray-900">{fecha}</span>
+            </div>
+          )}
           {typeof metricas.volumenPedidosColapso === 'number' && (
-            <div className="flex justify-between gap-4">
-              <span className="text-(--color-ink-500)">Pedidos activos en ese instante</span>
-              <span className="font-bold text-(--color-ink-900)">{metricas.volumenPedidosColapso}</span>
+            <div className="flex justify-between gap-4 border-b border-red-100 pb-2">
+              <span className="text-gray-500">Pedidos activos en ese instante</span>
+              <span className="font-bold text-red-700">{metricas.volumenPedidosColapso}</span>
             </div>
           )}
-          {pedido !== undefined && (
-            <div className="flex justify-between gap-4">
-              <span className="text-(--color-ink-500)">Pedido incumplido</span>
-              <span className="font-bold text-red-600">{String(pedido)}</span>
+          {metricas.codigoPedidoColapso && (
+            <div className="flex justify-between gap-4 border-b border-red-100 pb-2">
+              <span className="text-gray-500">Pedido incumplido</span>
+              <span className="font-bold text-red-700">{metricas.codigoPedidoColapso}</span>
             </div>
           )}
           <div className="flex justify-between gap-4">
-            <span className="text-(--color-ink-500)">Incidencias hasta ese momento</span>
-            <span className="font-bold text-(--color-ink-900)">
+            <span className="text-gray-500">Incidencias hasta ese momento</span>
+            <span className="text-right font-bold text-gray-900">
               {metricas.bloqueosOcurridos} bloqueos · {metricas.averiasOcurridas} averías
             </span>
           </div>
-          <p className="rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-xs text-red-700">
-            Esta es la carga máxima que el planificador logró sostener. La simulación se detuvo.
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+            Esta es la carga máxima que el planificador logró sostener antes de fallar.
           </p>
         </div>
 
@@ -86,15 +105,15 @@ export const AlertaColapso: React.FC<Props> = ({ metricas, visible, onVerReporte
         <div className="flex gap-3 px-6 pb-6">
           <button
             type="button"
-            onClick={() => setCerradoPara(instante)}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-(--color-line-200) px-4 py-2.5 text-sm font-semibold text-(--color-ink-700) hover:bg-gray-50"
+            onClick={cerrar}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-red-200 px-4 py-3 text-sm font-semibold text-red-800 hover:bg-red-50"
           >
             <MapIcon size={16} /> Ver el mapa
           </button>
           <button
             type="button"
-            onClick={() => { setCerradoPara(instante); onVerReporte(); }}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2.5 text-sm font-semibold text-white"
+            onClick={() => { cerrar(); onVerReporte(); }}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-700"
             autoFocus
           >
             <FileText size={16} /> Ver reporte

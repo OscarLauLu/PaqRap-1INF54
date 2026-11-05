@@ -4,6 +4,9 @@ import { Info, Maximize2, Minus, Plus, X } from 'lucide-react';
 import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
 import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
+import { parsearFechaLocal } from '../../utils/fechaLocal';
+import { averiasApi } from '../../api/averiasApi';
+import { crearHorario, distanciaEn, sinAlimentacion, suavizarReloj, type Horario, type HorarioRuta } from './movimiento';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
 export interface RutaMapa {
@@ -15,6 +18,22 @@ export interface RutaMapa {
   esCamino?: boolean;
   /** Camino completo de la ruta (desde el almacén): el vehículo se anima sobre él, siguiendo las calles */
   caminoCompleto?: Ubicacion[];
+  /**
+   * Horario de la ruta (ms en hora local del simulador): salida del almacén y, por parada, su índice
+   * en caminoCompleto, la llegada y el fin del acondicionamiento. Con esto el mapa calcula la posición
+   * del vehículo en cada cuadro, sin esperar a la siguiente consulta al backend.
+   */
+  horario?: HorarioRuta;
+  /** Ruta de rescate: código de la unidad averiada cuya carga va a trasvasar */
+  rescataA?: string;
+}
+
+/** Reloj simulado que recibe el mapa: con él se estima la hora simulada entre consultas */
+export interface RelojMapa {
+  instanteActual?: string;
+  factorAceleracion?: number;
+  /** false en pausa o sin simulación: los vehículos se quedan quietos */
+  corriendo: boolean;
 }
 
 interface MapaOperacionesProps {
@@ -29,6 +48,8 @@ interface MapaOperacionesProps {
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
   pausado?: boolean;
+  /** Reloj simulado: si llega, los vehículos con horario se mueven de forma continua */
+  reloj?: RelojMapa;
   /** Filtros del panel derecho: lo filtrado allí también se oculta en el mapa */
   filtros?: FiltrosPanel;
   /** En la operación diaria muestra pedidos por atender */
@@ -65,9 +86,9 @@ const COLOR_ALMACEN = { central: '#EA580C', norte: '#0891B2', este: '#4F46E5' };
 // Avería por tipo (enunciado). Escala de riesgo: amarillo (bajo) → naranja (medio) → rojo oscuro (alto),
 // más el número del tipo, para distinguirlas sin depender solo del color
 const AVERIA_TIPO: Record<string, { color: string; texto: string; nombre: string; detalle: string; riesgo: string }> = {
-  '1': { color: '#FDE047', texto: '#713F12', nombre: 'Tipo 1 · leve', detalle: '2 h en el lugar', riesgo: 'Riesgo bajo' },
-  '2': { color: '#F97316', texto: '#FFFFFF', nombre: 'Tipo 2 · moderada', detalle: 'hasta el cambio de turno', riesgo: 'Riesgo medio' },
-  '3': { color: '#B91C1C', texto: '#FFFFFF', nombre: 'Tipo 3 · grave', detalle: '2 días o más en taller', riesgo: 'Riesgo alto' },
+  '1': { color: '#FDE047', texto: '#713F12', nombre: 'Tipo 1 · leve', detalle: '2 h en el lugar y sigue su ruta', riesgo: 'Riesgo bajo' },
+  '2': { color: '#F97316', texto: '#FFFFFF', nombre: 'Tipo 2 · moderada', detalle: '4 h en el lugar; vuelve al final del turno siguiente', riesgo: 'Riesgo medio' },
+  '3': { color: '#B91C1C', texto: '#FFFFFF', nombre: 'Tipo 3 · grave', detalle: '4 h en el lugar; 2 días o más en taller', riesgo: 'Riesgo alto' },
 };
 /** Normaliza "TIPO_2", "2", "tipo 2"… a "1" | "2" | "3" (o null si no se sabe) */
 const numeroTipoAveria = (valor: unknown): string | null => {
@@ -157,6 +178,9 @@ const puntoEn = (t: Trazado, s: number): { x: number; y: number; ang: number } =
   return { x: ax + u * (bx - ax), y: ay + u * (by - ay), ang: (Math.atan2(by - ay, bx - ax) * 180) / Math.PI };
 };
 
+// Si el reloj deja de llegar, no se adelanta más que esto (en tiempo real) para no inventar posiciones
+const MAX_EXTRAPOLACION_MS = 10_000;
+
 const limitar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 /** Código corto del pedido para la etiqueta del mapa: "PED-573-162fbe" → "573" (el completo está en el popup) */
@@ -178,7 +202,7 @@ const DATOS_TIPO: Record<string, { velocidad: number; costoKm: number; capacidad
 const ESTADO_UNIDAD: Record<string, { texto: string; clase: string }> = {
   DISPONIBLE: { texto: 'Disponible', clase: 'bg-green-50 text-green-700 border-green-200' },
   EN_RUTA: { texto: 'En ruta', clase: 'bg-blue-50 text-blue-700 border-blue-200' },
-  AVERIADO: { texto: 'Averiado', clase: 'bg-red-50 text-red-700 border-red-200' },
+  AVERIADA: { texto: 'Averiado', clase: 'bg-red-50 text-red-700 border-red-200' },
   EN_MANTENIMIENTO: { texto: 'Mantenimiento', clase: 'bg-amber-50 text-amber-700 border-amber-200' },
 };
 const CRITICIDAD: Record<string, { texto: string; clase: string }> = {
@@ -227,6 +251,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   onSelectUnidad,
   escenario,
   pausado = false,
+  reloj,
   filtros,
   averias = [],
 }) => {
@@ -255,6 +280,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   // --- Animación sobre la ruta (se mueve el DOM directamente, sin volver a dibujar con React) ---
   const nodoVehiculo = useRef(new Map<string, SVGGElement>());   // grupo que se desplaza
   const giroVehiculo = useRef(new Map<string, SVGGElement>());   // grupo que gira
+  const lineaRuta = useRef(new Map<string, SVGPathElement>());    // línea punteada de lo que le falta recorrer
   const recorrido = useRef(new Map<string, { clave: string; s: number }>()); // dónde se dibujó por última vez
   const animaciones = useRef(new Map<string, { t: Trazado; s0: number; s1: number; t0: number }>());
   const cuadro = useRef<number | null>(null);
@@ -416,15 +442,119 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   const toSvgX = (x: number) => x;
   const toSvgY = (y: number) => 50 - y;
 
-  // Cada vez que llegan posiciones nuevas, cada vehículo con ruta recorre su camino desde donde
-  // está dibujado hasta su nueva posición, en el mismo tiempo que tarda la siguiente consulta.
+  // ---- Movimiento continuo: horario de cada ruta + reloj simulado estimado entre consultas ----
+  const horarios = useMemo(() => {
+    const m = new Map<string, Horario>();
+    rutas.forEach((r) => {
+      const tr = trazados.get(r.unidadCodigo);
+      // Los índices del horario apuntan a caminoCompleto, que es el camino del trazado
+      if (!tr || !r.horario || !r.caminoCompleto || r.caminoCompleto.length < 2) return;
+      const h = crearHorario(tr, r.horario);
+      if (h) m.set(r.unidadCodigo, h);
+    });
+    return m;
+  }, [rutas, trazados]);
+
+  const instanteMs = parsearFechaLocal(reloj?.instanteActual);
+  const factorReloj = reloj?.factorAceleracion && reloj.factorAceleracion > 0 ? reloj.factorAceleracion : 1;
+  const relojCorriendo = !!reloj?.corriendo && !pausado;
+  const relojDisponible = instanteMs !== null;
+
+  // Última hora simulada recibida y en qué momento (real) llegó; entre consultas se extrapola
+  const relojRef = useRef<{ ms: number; recibido: number; factor: number; corriendo: boolean } | null>(null);
+  const mostradoRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (instanteMs === null) {
+      relojRef.current = null;
+      mostradoRef.current = null;
+      return;
+    }
+    relojRef.current = { ms: instanteMs, recibido: performance.now(), factor: factorReloj, corriendo: relojCorriendo };
+  }, [instanteMs, factorReloj, relojCorriendo]);
+
+  /** Hora simulada que se muestra ahora: estimada entre consultas y corregida con suavidad (sin congelarse) */
+  const ultimoCuadroRef = useRef<number | null>(null);
+  const simAhora = (ahora: number): number | null => {
+    const r = relojRef.current;
+    if (!r) return null;
+    const objetivo = r.ms + (r.corriendo ? Math.min(ahora - r.recibido, MAX_EXTRAPOLACION_MS) * r.factor : 0);
+    const dt = ultimoCuadroRef.current === null ? 0 : ahora - ultimoCuadroRef.current;
+    ultimoCuadroRef.current = ahora;
+    const ms = suavizarReloj(mostradoRef.current, objetivo, dt, r.corriendo, r.factor);
+    mostradoRef.current = ms;
+    return ms;
+  };
+
+  const horariosRef = useRef(horarios);
+  horariosRef.current = horarios;
+  const trazadosRef = useRef(trazados);
+  trazadosRef.current = trazados;
+  const averiadosRef = useRef(new Set<string>());
+  averiadosRef.current = new Set(
+    (Array.isArray(unidades) ? unidades : []).filter((u) => u.estadoOperativo === 'AVERIADA').map((u) => u.codigo),
+  );
+
+  /** Línea de lo que le falta recorrer: desde donde está dibujado el vehículo hasta el final del camino */
+  const caminoRestante = (tr: Trazado, s: number, x: number, y: number): string => {
+    const partes = [`M ${toSvgX(x)} ${toSvgY(y)}`];
+    for (let i = 0; i < tr.pts.length; i++) {
+      if (tr.acum[i] > s + 1e-6) partes.push(`L ${toSvgX(tr.pts[i][0])} ${toSvgY(tr.pts[i][1])}`);
+    }
+    return partes.join(' ');
+  };
+
+  /** Ubica cada vehículo con horario en su posición para la hora simulada actual */
+  const dibujarContinuo = (ahora: number) => {
+    const ms = simAhora(ahora);
+    if (ms === null) return;
+    const msVisible = sinAlimentacion(ms);
+    horariosRef.current.forEach((h, codigo) => {
+      if (averiadosRef.current.has(codigo)) return;
+      const tr = trazadosRef.current.get(codigo);
+      const nodo = nodoVehiculo.current.get(codigo);
+      if (!tr || !nodo) return;
+      const s = distanciaEn(h, msVisible);
+      const { x, y, ang } = puntoEn(tr, s);
+      nodo.setAttribute('transform', `translate(${toSvgX(x)} ${toSvgY(y)})`);
+      giroVehiculo.current.get(codigo)?.setAttribute('transform', `rotate(${-ang})`);
+      lineaRuta.current.get(codigo)?.setAttribute('d', caminoRestante(tr, s, x, y));
+      recorrido.current.set(codigo, { clave: tr.clave, s });
+    });
+  };
+  const dibujarContinuoRef = useRef(dibujarContinuo);
+  dibujarContinuoRef.current = dibujarContinuo;
+
+  // Un cuadro por refresco de pantalla mientras el mapa esté abierto
+  useEffect(() => {
+    let id = 0;
+    const paso = (momento: number) => {
+      dibujarContinuoRef.current(momento);
+      id = requestAnimationFrame(paso);
+    };
+    id = requestAnimationFrame(paso);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Tras cada render se ubican de inmediato, para que nadie aparezca un instante en otro lugar
+  useLayoutEffect(() => {
+    dibujarContinuoRef.current(performance.now());
+  });
+
+  // Respaldo para vehículos sin horario (o sin reloj): cada vez que llegan posiciones nuevas, recorre
+  // su camino desde donde está dibujado hasta su nueva posición, en lo que tarda la siguiente consulta.
   useLayoutEffect(() => {
     const ahora = performance.now();
     (Array.isArray(unidades) ? unidades : []).forEach((u) => {
       const t = trazados.get(u.codigo);
-      if (!t || u.estadoOperativo === 'AVERIADO') {
+      if (!t || u.estadoOperativo === 'AVERIADA') {
         animaciones.current.delete(u.codigo);
         recorrido.current.delete(u.codigo);
+        ultimaPosBackend.current.delete(u.codigo);
+        return;
+      }
+      if (relojDisponible && horarios.has(u.codigo)) {
+        // Lo mueve el movimiento continuo
+        animaciones.current.delete(u.codigo);
         ultimaPosBackend.current.delete(u.codigo);
         return;
       }
@@ -453,6 +583,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         const { x, y, ang } = puntoEn(a.t, s);
         nodoVehiculo.current.get(codigo)?.setAttribute('transform', `translate(${toSvgX(x)} ${toSvgY(y)})`);
         giroVehiculo.current.get(codigo)?.setAttribute('transform', `rotate(${-ang})`);
+        lineaRuta.current.get(codigo)?.setAttribute('d', caminoRestante(a.t, s, x, y));
         recorrido.current.set(codigo, { clave: a.t.clave, s });
         if (f >= 1) animaciones.current.delete(codigo);
       });
@@ -466,7 +597,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       if (cuadro.current !== null) cancelAnimationFrame(cuadro.current);
       cuadro.current = null;
     };
-  }, [unidades, trazados, pausado]);
+  }, [unidades, trazados, pausado, horarios, relojDisponible]);
 
   // ---- Qué vehículos se dibujan ----
   // Solo los que tienen trabajo: con ruta, en ruta, que se movieron hace poco o averiados (y el
@@ -484,7 +615,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     if (
       rutaDe.has(u.codigo) ||
       u.estadoOperativo === 'EN_RUTA' ||
-      u.estadoOperativo === 'AVERIADO' ||
+      u.estadoOperativo === 'AVERIADA' ||
       ahoraMs - t < VENTANA_MOVIMIENTO_MS ||
       u.codigo === selectedUnidadCodigo
     ) {
@@ -543,6 +674,51 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     return () => cancelAnimationFrame(cuadroPopup);
   }, [seleccion]);
 
+  // ---- Registrar una avería desde el mapa (FAQ 3: las averías se registran en el visualizador) ----
+  const [registrandoAveria, setRegistrandoAveria] = useState(false);
+  const [avisoAveria, setAvisoAveria] = useState<{ codigo: string; texto: string; error: boolean } | null>(null);
+
+  /** Esquina en la que el operario ve al vehículo: ahí queda detenido por la avería */
+  const posicionDibujada = (u: UnidadTransporte): Ubicacion => {
+    const tr = trazados.get(u.codigo);
+    const rec = recorrido.current.get(u.codigo);
+    if (tr && rec && rec.clave === tr.clave) {
+      const { x, y } = puntoEn(tr, rec.s);
+      return { posX: Math.round(x), posY: Math.round(y) };
+    }
+    return u.ubicacionActual;
+  };
+
+  const registrarAveria = async (u: UnidadTransporte, n: '1' | '2' | '3') => {
+    setRegistrandoAveria(true);
+    try {
+      await averiasApi.registrar({ idUnidad: u.codigo, tipo: `TIPO_${n}`, ubicacion: posicionDibujada(u) });
+      setAvisoAveria({ codigo: u.codigo, texto: `Avería tipo ${n} registrada. ${AVERIA_TIPO[n].detalle}.`, error: false });
+    } catch (err: unknown) {
+      const resp = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setAvisoAveria({ codigo: u.codigo, texto: resp ?? 'No se pudo registrar la avería.', error: true });
+    } finally {
+      setRegistrandoAveria(false);
+    }
+  };
+
+  /**
+   * Si el vehículo está detenido en una parada según su horario: la hora de acondicionamiento en el
+   * cliente (FAQ 14) o el trasvase de una ruta de rescate. Usa la misma hora simulada que se dibuja.
+   */
+  const actividadEnParada = (r?: RutaMapa): string | null => {
+    const ms = mostradoRef.current;
+    const h = r?.horario;
+    if (ms === null || !h) return null;
+    for (let i = 0; i < h.paradas.length; i++) {
+      const p = h.paradas[i];
+      if (ms >= p.llegada && ms < p.salida) {
+        return i === 0 && r?.rescataA ? `Trasvasando la carga de ${r.rescataA}` : 'Entregando producto';
+      }
+    }
+    return null;
+  };
+
   // ---- Contenido del popup según lo seleccionado ----
   const contenidoPopup = (() => {
     if (!seleccion) return null;
@@ -567,9 +743,19 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               <BarraPopup valor={u.cargaActual} total={capacidad} color={COLOR_TIPO[u.tipoNombre] ?? '#3B82F6'} />
             </div>
             <FilaPopup etiqueta="Pendientes">
-              {pendientes.length > 0 ? `${pendientes.length} · sigue ${pendientes[0]}` : 'Sin ruta asignada'}
+              {(() => {
+                const actividad = actividadEnParada(rutaDe.get(u.codigo));
+                if (actividad) return pendientes.length > 0 ? `${actividad} · quedan ${pendientes.length}` : actividad;
+                if (pendientes.length > 0) return `${pendientes.length} · sigue ${pendientes[0]}`;
+                return rutaDe.has(u.codigo) ? 'Regresando al almacén' : 'Sin ruta asignada';
+              })()}
             </FilaPopup>
-            {u.estadoOperativo === 'AVERIADO' && (() => {
+            {rutaDe.get(u.codigo)?.rescataA && (
+              <FilaPopup etiqueta="Rescate">
+                <span className="font-semibold text-red-700">Trasvase de la carga de {rutaDe.get(u.codigo)?.rescataA}</span>
+              </FilaPopup>
+            )}
+            {u.estadoOperativo === 'AVERIADA' && (() => {
               const info = AVERIA_TIPO[tipoAveriaDe(u)];
               return (
                 <FilaPopup etiqueta="Avería">
@@ -581,6 +767,31 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               );
             })()}
             <FilaPopup etiqueta="Ubicación">({u.ubicacionActual.posX}, {u.ubicacionActual.posY})</FilaPopup>
+            {u.estadoOperativo !== 'AVERIADA' && u.estadoOperativo !== 'EN_MANTENIMIENTO' && (
+              <div className="pt-1">
+                <div className="text-gray-400 mb-1">Registrar avería</div>
+                <div className="flex gap-1.5">
+                  {(['1', '2', '3'] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={registrandoAveria}
+                      title={`${AVERIA_TIPO[n].nombre}: ${AVERIA_TIPO[n].detalle}`}
+                      onClick={(e) => { e.stopPropagation(); void registrarAveria(u, n); }}
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <svg viewBox="-0.6 -0.6 1.2 1.05" className="w-3.5 h-3.5" aria-hidden="true">
+                        <polygon points="0,-0.55 0.5,0.36 -0.5,0.36" fill={AVERIA_TIPO[n].color} stroke="#111827" strokeWidth="0.07" />
+                      </svg>
+                      Tipo {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {avisoAveria?.codigo === u.codigo && (
+              <p className={`text-[11px] ${avisoAveria.error ? 'text-red-600' : 'text-green-700'}`}>{avisoAveria.texto}</p>
+            )}
             <FilaPopup etiqueta="Velocidad · costo">
               {u.velocidadPromedioKmH || d?.velocidad} km/h · S/ {u.costoPorKm || d?.costoKm}/km
             </FilaPopup>
@@ -697,7 +908,13 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           const esSel = codigoSel === r.unidadCodigo;
           const hayOtraSel = !!codigoSel && !esSel;
           let d: string;
-          if (r.esCamino) {
+          const trazado = trazados.get(r.unidadCodigo);
+          const dibujado = recorrido.current.get(r.unidadCodigo);
+          if (trazado && dibujado && dibujado.clave === trazado.clave) {
+            // Pegada al vehículo: desde donde está dibujado hasta el final de su camino
+            const { x, y } = puntoEn(trazado, dibujado.s);
+            d = caminoRestante(trazado, dibujado.s, x, y);
+          } else if (r.esCamino) {
             // El backend ya entrega esquina por esquina esquivando bloqueos, por eso basta unirlas
             d = r.puntos.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${toSvgX(pt.posX)} ${toSvgY(pt.posY)}`).join(' ');
           } else {
@@ -718,6 +935,10 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           return (
             <path
               key={`ruta-${r.unidadCodigo}`}
+              ref={(el) => {
+                if (el) lineaRuta.current.set(r.unidadCodigo, el);
+                else lineaRuta.current.delete(r.unidadCodigo);
+              }}
               d={d}
               fill="none"
               stroke={colorRuta}
@@ -742,7 +963,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
             const mx = toSvgX(medio[0]);
             const my = toSvgY(medio[1]);
             return (
-              <g key={`bloqueo-${b.id}`} className="select-none">
+              <g key={`bloqueo-${b.codigo ?? b.id}`} className="select-none">
                 <polyline points={linea} fill="none" stroke="#111827" strokeWidth="0.2" strokeLinecap="round" strokeLinejoin="round" />
                 {/* Barrera de obra: blanca con franjas rojas y borde negro, como las barreras reales */}
                 <rect x={mx - 0.45} y={my - 0.28} width="0.9" height="0.56" rx="0.1" fill="white" stroke="#111827" strokeWidth="0.07" />
@@ -843,7 +1064,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               const ux = toSvgX(gx) + desp * Math.cos(a);
               const uy = toSvgY(gy) + desp * Math.sin(a);
 
-              const averiado = u.estadoOperativo === 'AVERIADO';
+              const averiado = u.estadoOperativo === 'AVERIADA';
               const isSelected = seleccion?.tipo === 'vehiculo' && seleccion.codigo === u.codigo;
 
               // "En movimiento" si el backend lo marca en ruta, si tiene una ruta pendiente o si se movió
@@ -902,15 +1123,17 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                     </g>
                   </g>
 
-                  {/* Averiado: insignia con el color de riesgo y el número de su tipo (1 leve · 2 moderada · 3 grave). No gira. */}
+                  {/* Averiado: triángulo de advertencia con el color de riesgo y el número de su tipo
+                      (1 leve · 2 moderada · 3 grave). Late para llamar la atención. No gira. */}
                   {averiado && (() => {
                     const t = tipoAveriaDe(u);
                     const info = AVERIA_TIPO[t];
                     return (
-                      <g transform={`translate(${TAMANO_ICONO * 0.45}, ${-TAMANO_ICONO * 0.45})`}>
-                        {t === '3' && <circle r="0.55" fill="none" stroke={info.color} strokeWidth="0.08" className="animate-pulse" />}
-                        <circle r="0.36" fill={info.color} stroke="#111827" strokeWidth="0.07" />
-                        <text y="0.15" textAnchor="middle" fontSize="0.42" fontWeight="bold" fill={info.texto} className="select-none">
+                      <g transform={`translate(${TAMANO_ICONO * 0.5}, ${-TAMANO_ICONO * 0.55})`}>
+                        <title>{`Avería ${info.nombre}: ${info.detalle}`}</title>
+                        <polygon points="0,-0.78 0.72,0.5 -0.72,0.5" fill="none" stroke={info.color} strokeWidth="0.12" className="animate-pulse" />
+                        <polygon points="0,-0.55 0.5,0.36 -0.5,0.36" fill={info.color} stroke="#111827" strokeWidth="0.07" strokeLinejoin="round" />
+                        <text y="0.27" textAnchor="middle" fontSize="0.42" fontWeight="bold" fill={info.texto} className="select-none">
                           {t}
                         </text>
                       </g>

@@ -2,8 +2,12 @@ package com.paqrap.logistics.simulacion.service;
 
 import com.paqrap.logistics.almacen.repository.AlmacenRepository;
 import com.paqrap.logistics.flota.dto.UnidadTransporteDTO;
+import com.paqrap.logistics.flota.model.Averia;
+import com.paqrap.logistics.flota.model.TipoAveria;
+import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
+import com.paqrap.logistics.flota.service.PlanMantenimientoService;
 import com.paqrap.logistics.planificacion.dto.RutaDTO;
 import com.paqrap.logistics.planificacion.model.EstadoRuta;
 import com.paqrap.logistics.planificacion.model.Planificador;
@@ -46,6 +50,7 @@ public class SimulacionSessionManager {
     private final RedVial redVial;
     private final RedVialService redVialService;
     private final ResultadoSimulacionRepository resultadoRepository;
+    private final PlanMantenimientoService planMantenimiento;
 
     private final Map<String, SimulacionSession> sesiones = new ConcurrentHashMap<>();
 
@@ -94,8 +99,13 @@ public class SimulacionSessionManager {
                 almacenRepository,
                 cargadorArchivos,
                 unidadRepository,
-                resultadoRepository
+                resultadoRepository,
+                planMantenimiento
         );
+    }
+
+    public Averia registrarAveria(SimulacionSession sesion, String codigoUnidad, TipoAveria tipo, Ubicacion ubicacion) {
+        return sesion.registrarAveria(codigoUnidad, tipo, ubicacion);
     }
 
     public void detenerSesion(SimulacionSession sesion) {

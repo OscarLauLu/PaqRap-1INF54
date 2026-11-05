@@ -8,6 +8,8 @@ import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.TipoVehiculo;
 import com.paqrap.logistics.flota.service.FlotaService;
+import com.paqrap.logistics.redvial.model.Ubicacion;
+import com.paqrap.logistics.simulacion.model.AtencionAverias;
 import com.paqrap.logistics.simulacion.model.EstadoEjecucion;
 import com.paqrap.logistics.simulacion.model.SimulacionSession;
 import com.paqrap.logistics.simulacion.service.SimulacionSessionManager;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/flota")
@@ -76,10 +79,18 @@ public class FlotaController {
 
     @PostMapping("/unidades/{id}/averia")
     @Operation(summary = "Registrar evento de avería de unidad y calcular reincorporación (RF-14, RF-45)")
-    public ResponseEntity<Averia> registrarAveria(
+    public ResponseEntity<Map<String, Object>> registrarAveria(
             @PathVariable String id,
-            @Valid @RequestBody RegistrarAveriaDTO dto) {
-        return ResponseEntity.ok(flotaService.registrarAveria(id, dto));
+            @Valid @RequestBody RegistrarAveriaDTO dto,
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        // En una simulación (5D o colapso) la avería se registra en la sesión del operario
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            Averia a = sessionManager.registrarAveria(sesion, id, dto.getTipo(),
+                    new Ubicacion(dto.getUbicacionX(), dto.getUbicacionY()));
+            return ResponseEntity.ok(AtencionAverias.resumen(a));
+        }
+        return ResponseEntity.ok(AtencionAverias.resumen(flotaService.registrarAveria(id, dto)));
     }
 
     @PutMapping("/configuracion/{tipoNombre}")

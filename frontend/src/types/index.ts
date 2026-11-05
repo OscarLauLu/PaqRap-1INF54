@@ -17,7 +17,7 @@ export interface Almacen {
 }
 
 export type TipoVehiculo = 'Auto' | 'Moto' | 'Bicicleta' | string;
-export type EstadoOperativo = 'DISPONIBLE' | 'EN_RUTA' | 'EN_MANTENIMIENTO' | 'AVERIADO';
+export type EstadoOperativo = 'DISPONIBLE' | 'EN_RUTA' | 'EN_MANTENIMIENTO' | 'AVERIADA';
 
 // Coincide con UnidadTransporteDTO.java: la clave es `codigo` (String); el DTO no expone
 // `turno` ni `pedidoAsignado` (eso vive en asignacion_turno / Ruta, se agrega en otro punto).
@@ -162,6 +162,8 @@ export interface MetricasSimulacion {
   averiasOcurridas: number;
   instanteColapso: string | null;
   volumenPedidosColapso: number | null;
+  /** Pedido cuyo incumplimiento causó el colapso (solo en el escenario de colapso). */
+  codigoPedidoColapso?: string | null;
 }
 
 // Coincide con ResultadoSimulacion.java (RF-73 a RF-75).

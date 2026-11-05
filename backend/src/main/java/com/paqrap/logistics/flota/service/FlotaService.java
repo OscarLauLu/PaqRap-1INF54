@@ -117,6 +117,9 @@ public class FlotaService {
         UnidadTransporte u = unidadRepository.findById(unidadId)
                 .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", unidadId));
 
+        if (u.getEstadoOperativo() == com.paqrap.logistics.flota.model.EstadoOperativo.AVERIADA) {
+            throw new com.paqrap.logistics.common.exception.BusinessException("La unidad " + unidadId + " ya está averiada.");
+        }
         LocalDateTime ahora = momentoActual();
         Ubicacion ubicacion = new Ubicacion(dto.getUbicacionX(), dto.getUbicacionY());
 
@@ -130,18 +133,13 @@ public class FlotaService {
                 .resuelta(false)
                 .build();
 
-        LocalDateTime reincorporacion = averia.calcularReincorporacion(null);
-        averia.setHoraReincorporacion(reincorporacion);
+        // La unidad queda AVERIADA e inmóvil en el punto de la falla (FAQ 3). El traslado al central de
+        // los tipos 2 y 3 ocurre recién a las 4 h en el lugar: lo hace el motor (AtencionAverias)
+        com.paqrap.logistics.simulacion.model.AtencionAverias.iniciar(averia, u);
+        LocalDateTime reincorporacion = averia.getHoraReincorporacion();
 
         Averia guardada = averiaRepository.save(averia);
-        u.registrarAveria(guardada);
-        
-        // Regla FAQ: "Las unidades de transporte en las averías 2 y 3, son llevadas de manera instantánea al almacen central."
-        if (dto.getTipo() == com.paqrap.logistics.flota.model.TipoAveria.TIPO_2 || dto.getTipo() == com.paqrap.logistics.flota.model.TipoAveria.TIPO_3) {
-            u.setUbicacionActual(new Ubicacion(27, 14));
-            // Ojo: Los paquetes no entregados ya son liberados por el AveriaDestroyOperator para ser reasignados desde el almacén
-        }
-        
+        u.getAverias().add(guardada);
         unidadRepository.save(u);
 
         // Generar alerta de avería (RF-45)
@@ -249,6 +247,11 @@ public class FlotaService {
                 .ubicacionActual(u.getUbicacionActual())
                 .nombreConductor(nombreConductorDeHoy(u))
                 .activo(u.isActivo())
+                .tipoAveria(averiaRepository.findByUnidadCodigo(u.getCodigo()).stream()
+                        .filter(a -> !a.isResuelta() && a.getTipo() != null)
+                        .map(a -> a.getTipo().name())
+                        .reduce((primera, ultima) -> ultima)
+                        .orElse(null))
                 .build();
     }
 
