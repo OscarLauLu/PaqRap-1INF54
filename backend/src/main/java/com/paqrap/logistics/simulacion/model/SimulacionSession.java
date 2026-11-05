@@ -100,6 +100,8 @@ public class SimulacionSession {
     private int averiasOcurridas = 0;
     private LocalDateTime instanteColapsoDetectado;
     private Integer volumenPedidosColapsoDetectado;
+    /** Código del pedido cuyo incumplimiento provocó el colapso (para el aviso de emergencia). */
+    private String codigoPedidoColapso;
 
     private static final ZoneId ZONA_LIMA = ZoneId.of("America/Lima");
 
@@ -139,6 +141,7 @@ public class SimulacionSession {
         this.averiasOcurridas = 0;
         this.instanteColapsoDetectado = null;
         this.volumenPedidosColapsoDetectado = null;
+        this.codigoPedidoColapso = null;
         this.ultimaHoraPlanificada = null;
     }
 
@@ -455,6 +458,9 @@ public class SimulacionSession {
                         if (p.getPedido() != null) {
                             if (p.getPedido().getPlazoLimiteEntrega() != null && p.getPedido().getPlazoLimiteEntrega().isBefore(instante)) {
                                 pedidosTarde++;
+                                if (codigoPedidoColapso == null) {
+                                    codigoPedidoColapso = p.getPedido().getCodigo();
+                                }
                             } else {
                                 pedidosEnPlazo++;
                             }
@@ -599,7 +605,15 @@ public class SimulacionSession {
         LocalDateTime ahora = reloj.getInstanteActual();
         return pedidosActivos.stream()
                 .filter(p -> p.getEstado() != null && !p.getEstado().esFinal())
-                .anyMatch(p -> p.getPlazoLimiteEntrega() != null && p.getPlazoLimiteEntrega().isBefore(ahora));
+                .filter(p -> p.getPlazoLimiteEntrega() != null && p.getPlazoLimiteEntrega().isBefore(ahora))
+                .findFirst()
+                .map(p -> {
+                    if (codigoPedidoColapso == null) {
+                        codigoPedidoColapso = p.getCodigo();
+                    }
+                    return true;
+                })
+                .orElse(false);
     }
 
     public int contarPedidosActivos() {
@@ -711,6 +725,7 @@ public class SimulacionSession {
         resp.put("averiasOcurridas", averiasOcurridas);
         resp.put("instanteColapso", instanteColapsoDetectado);
         resp.put("volumenPedidosColapso", volumenPedidosColapsoDetectado);
+        resp.put("codigoPedidoColapso", codigoPedidoColapso);
         return resp;
     }
 

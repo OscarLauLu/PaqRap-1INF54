@@ -454,10 +454,13 @@ export const App: React.FC = () => {
           </main>
         )}
 
-        {/* Alerta grande de colapso logístico, al centro de la pantalla */}
-        {activeSection === 'simulacion' && (
-          <AlertaColapso metricas={metricas} visible={!sinDatos} onVerReporte={() => setActiveSection('reportes')} />
-        )}
+        {/* Ventana de emergencia de colapso logístico: modal rojo al centro, solo en la simulación de colapso */}
+        <AlertaColapso
+          metricas={metricas}
+          detenidaPorColapso={reloj.estadoEjecucion === 'DETENIDA_POR_COLAPSO'}
+          visible={activeSection === 'simulacion' && escenarioSel === 'COLAPSO_LOGISTICO'}
+          onVerReporte={() => setActiveSection('reportes')}
+        />
       </div>
     </div>
   );

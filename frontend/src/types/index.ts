@@ -162,6 +162,8 @@ export interface MetricasSimulacion {
   averiasOcurridas: number;
   instanteColapso: string | null;
   volumenPedidosColapso: number | null;
+  /** Pedido cuyo incumplimiento causó el colapso (solo en el escenario de colapso). */
+  codigoPedidoColapso?: string | null;
 }
 
 // Coincide con ResultadoSimulacion.java (RF-73 a RF-75).
