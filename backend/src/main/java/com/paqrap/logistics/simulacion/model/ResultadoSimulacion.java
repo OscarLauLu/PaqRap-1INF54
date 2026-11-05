@@ -34,6 +34,9 @@ public class ResultadoSimulacion {
     @Column(nullable = false, unique = true)
     private String codigo;
 
+    @Column(name = "session_id")
+    private String sessionId;
+
     private String escenario;
 
     private LocalDateTime fechaHoraInicio;

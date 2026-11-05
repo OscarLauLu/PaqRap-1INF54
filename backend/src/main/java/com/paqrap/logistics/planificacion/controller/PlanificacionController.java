@@ -4,6 +4,9 @@ import com.paqrap.logistics.planificacion.dto.PlanificacionResultDTO;
 import com.paqrap.logistics.planificacion.dto.RutaDTO;
 import com.paqrap.logistics.planificacion.model.EstadoRuta;
 import com.paqrap.logistics.planificacion.service.PlanificacionService;
+import com.paqrap.logistics.simulacion.model.EstadoEjecucion;
+import com.paqrap.logistics.simulacion.model.SimulacionSession;
+import com.paqrap.logistics.simulacion.service.SimulacionSessionManager;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,6 +31,7 @@ import java.util.List;
 public class PlanificacionController {
 
     private final PlanificacionService planificacionService;
+    private final SimulacionSessionManager sessionManager;
 
     @PostMapping("/ejecutar")
     @Operation(summary = "Ejecutar ciclo de planificación de rutas", description = "Ordena por holgura, asigna almacén óptimo, optimiza paradas con 60 min de servicio y valida plazos y capacidad (RF-01 a RF-09)")
@@ -37,7 +42,13 @@ public class PlanificacionController {
 
     @GetMapping("/rutas")
     @Operation(summary = "Listar rutas planificadas con filtro por estado operacional (RF-55)")
-    public ResponseEntity<List<RutaDTO>> listarRutas(@RequestParam(required = false) EstadoRuta estado) {
+    public ResponseEntity<List<RutaDTO>> listarRutas(
+            @RequestParam(required = false) EstadoRuta estado,
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            return ResponseEntity.ok(sessionManager.obtenerRutasDTO(sesion, estado));
+        }
         return ResponseEntity.ok(planificacionService.listarRutas(estado));
     }
 

@@ -8,6 +8,9 @@ import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.TipoVehiculo;
 import com.paqrap.logistics.flota.service.FlotaService;
+import com.paqrap.logistics.simulacion.model.EstadoEjecucion;
+import com.paqrap.logistics.simulacion.model.SimulacionSession;
+import com.paqrap.logistics.simulacion.service.SimulacionSessionManager;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,12 +39,18 @@ import java.util.List;
 public class FlotaController {
 
     private final FlotaService flotaService;
+    private final SimulacionSessionManager sessionManager;
 
     @GetMapping("/unidades")
     @Operation(summary = "Listar unidades de transporte con filtros de tipo y estado")
     public ResponseEntity<List<UnidadTransporteDTO>> listarUnidades(
             @RequestParam(required = false) String tipo,
-            @RequestParam(required = false) EstadoOperativo estado) {
+            @RequestParam(required = false) EstadoOperativo estado,
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            return ResponseEntity.ok(sesion.obtenerUnidadesDTO(tipo, estado));
+        }
         return ResponseEntity.ok(flotaService.listarUnidades(tipo, estado));
     }
 
