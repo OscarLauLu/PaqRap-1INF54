@@ -26,7 +26,13 @@ public final class CaminoRuta {
      */
     public static List<Ubicacion> puntosDeVisita(Ruta r, Ubicacion retorno) {
         List<Ubicacion> puntos = new ArrayList<>();
-        puntos.add(r.getAlmacenOrigen().getUbicacion());
+        if (r.getRescate() != null) {
+            // Ruta de rescate: desde donde estaba la unidad hasta el punto de la avería (trasvase)
+            puntos.add(r.getRescate().getPartida());
+            puntos.add(r.getRescate().getPuntoTrasvase());
+        } else {
+            puntos.add(r.getAlmacenOrigen().getUbicacion());
+        }
         r.getParadas().stream()
                 .sorted(Comparator.comparingInt(ParadaRuta::getOrden))
                 .filter(p -> p.getPedido() != null && p.getPedido().getDestino() != null)

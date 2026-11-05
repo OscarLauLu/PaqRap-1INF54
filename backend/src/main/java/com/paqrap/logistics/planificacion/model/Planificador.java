@@ -114,7 +114,9 @@ public class Planificador {
         List<Ruta> rutasConfirmadas = new ArrayList<>();
         for (Ruta ruta : rutasGeneradas) {
             // Asignar almacén central por defecto o el más cercano
-            Almacen origen = seleccionarAlmacenOrigen(ruta.getParadas().isEmpty() ? null : ruta.getParadas().get(0).getPedido());
+            Almacen origen = almacenDeSalida(ruta,
+                    seleccionarAlmacenOrigen(ruta.getParadas().isEmpty() ? null : ruta.getParadas().get(0).getPedido()),
+                    almacenRepository.findAll());
             ruta.setAlmacenOrigen(origen);
 
             // Validar capacidad (RF-07) y plazos (RF-08)
@@ -255,6 +257,28 @@ public class Planificador {
      */
     public List<Pedido> ordenarPorHolgura(List<Pedido> pedidos) {
         return ordenarPorHolgura(pedidos, LocalDateTime.now());
+    }
+
+    /**
+     * Almacén del que sale una ruta: si el vehículo ya está en un almacén con stock suficiente para toda
+     * la ruta, sale de ahí (FAQ 10: puede recargar en cualquier almacén con stock); si no, el sugerido.
+     * Evita que un vehículo que volvió a un intermedio "salte" al central al empezar su siguiente ruta.
+     */
+    public static Almacen almacenDeSalida(Ruta ruta, Almacen sugerido, java.util.Collection<? extends Almacen> almacenes) {
+        UnidadTransporte u = ruta.getUnidadTransporte();
+        if (u == null || u.getUbicacionActual() == null || almacenes == null) return sugerido;
+        int unidades = ruta.getParadas().stream()
+                .mapToInt(p -> p.getPedido() != null ? p.getPedido().getCantidadUnidades() : 0)
+                .sum();
+        for (Almacen a : almacenes) {
+            if (a.getUbicacion() != null
+                    && a.getUbicacion().getPosX() == u.getUbicacionActual().getPosX()
+                    && a.getUbicacion().getPosY() == u.getUbicacionActual().getPosY()
+                    && a.tieneStockSuficiente(unidades)) {
+                return a;
+            }
+        }
+        return sugerido;
     }
 
     /**

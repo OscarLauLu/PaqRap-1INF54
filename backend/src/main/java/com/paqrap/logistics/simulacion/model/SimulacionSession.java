@@ -23,6 +23,7 @@ import com.paqrap.logistics.planificacion.model.CaminoRuta;
 import com.paqrap.logistics.planificacion.model.EstadoRuta;
 import com.paqrap.logistics.planificacion.model.ParadaRuta;
 import com.paqrap.logistics.planificacion.model.Planificador;
+import com.paqrap.logistics.planificacion.model.PlanificadorTrasvase;
 import com.paqrap.logistics.planificacion.model.Ruta;
 import com.paqrap.logistics.redvial.model.Bloqueo;
 import com.paqrap.logistics.redvial.model.RedVial;
@@ -116,6 +117,8 @@ public class SimulacionSession {
     private YearMonth ultimoMesCargado;
     /** Unidades que esta sesión pasó a EN_MANTENIMIENTO por el plan (para devolverlas a DISPONIBLE). */
     private final Set<String> enMantenimientoPorPlan = ConcurrentHashMap.newKeySet();
+    /** Averías que ya tienen una ruta de rescate despachada */
+    private final Set<String> averiasConRescate = ConcurrentHashMap.newKeySet();
 
     public SimulacionSession(String sessionId) {
         this.sessionId = (sessionId != null && !sessionId.trim().isEmpty()) ? sessionId.trim() : UUID.randomUUID().toString();
@@ -240,6 +243,7 @@ public class SimulacionSession {
         pedidosActivos.clear();
         bloqueosActivos.clear();
         averiasActivas.clear();
+        averiasConRescate.clear();
         rutas.clear();
 
         inicializarFlota(unidadRepo);
@@ -397,11 +401,20 @@ public class SimulacionSession {
      * Antes nadie actualizaba este campo y el mapa mostraba "0/8 paquetes" aunque el vehículo
      * estuviera repartiendo.
      */
-    void actualizarCargas() {
+    public void actualizarCargas() {
+        LocalDateTime instante = reloj.getInstanteActual();
         Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutas);
+        // Carga de rescates aún no trasvasada: sigue a bordo de la unidad averiada
+        Map<String, Integer> porTrasvasar = new HashMap<>();
+        for (Ruta r : rutas) {
+            if (r.getEstado() != EstadoRuta.COMPLETADA && r.trasvasePendiente(instante)) {
+                porTrasvasar.merge(r.getRescate().getUnidadAveriada(), r.cargaPendiente(), Integer::sum);
+            }
+        }
         for (UnidadTransporte u : unidades) {
             Ruta r = enCurso.get(u.getCodigo());
-            u.setCargaActual(r != null ? r.cargaPendiente() : 0);
+            int carga = (r != null ? r.cargaABordo(instante) : 0) + porTrasvasar.getOrDefault(u.getCodigo(), 0);
+            u.setCargaActual(carga);
         }
     }
 
@@ -444,6 +457,24 @@ public class SimulacionSession {
         for (Averia a : averiasActivas) {
             UnidadTransporte u = a.getUnidad();
             if (u == null) continue;
+            // Rescate: una unidad libre o que regresa va a trasvasar la carga (una vez por avería)
+            if (!averiasConRescate.contains(a.getCodigo())) {
+                Ruta rescate = PlanificadorTrasvase.planificar(a, enCurso.get(u.getCodigo()), unidades, enCurso,
+                        instante, almacenes, "RES-" + a.getCodigo());
+                if (rescate != null) {
+                    rescate.setId(RUTA_ID_SEQ.getAndIncrement());
+                    rescate.getParadas().forEach(p -> {
+                        if (p.getPedido() != null) p.getPedido().setRutaAsignadaId(rescate.getId());
+                    });
+                    rutas.add(rescate);
+                    registrarCostosYRutas(List.of(rescate));
+                    averiasConRescate.add(a.getCodigo());
+                    enCurso = Ruta.rutaEnCursoPorUnidad(rutas);
+                    log.info("Sesión {}: {} va a rescatar {} paquetes de {} (trasvase {} a {})", sessionId,
+                            rescate.getUnidadTransporte().getCodigo(), rescate.getRescate().getCantidadProductos(),
+                            u.getCodigo(), rescate.getRescate().getLlegada(), rescate.getRescate().getFin());
+                }
+            }
             AtencionAverias.avanzar(a, u, enCurso.get(u.getCodigo()), instante, central, null);
         }
         averiasActivas.removeIf(Averia::isResuelta);
@@ -516,6 +547,9 @@ public class SimulacionSession {
                 continue;
             }
 
+            // Ruta de rescate: primero va al punto de la avería y trasvasa (30 min)
+            if (r.avanzarTramoRescate(instante)) continue;
+
             if (r.getEstado() == EstadoRuta.PLANIFICADA) {
                 r.setEstado(EstadoRuta.EN_EJECUCION);
             }
@@ -549,11 +583,11 @@ public class SimulacionSession {
                         LocalDateTime startTime;
                         int startX, startY;
                         if (pos == 0) {
-                            startTime = r.getFechaHoraGeneracion();
-                            startX = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null)
-                                    ? r.getAlmacenOrigen().getUbicacion().getPosX() : 27;
-                            startY = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null)
-                                    ? r.getAlmacenOrigen().getUbicacion().getPosY() : 14;
+                            // Sale del almacén, o del punto de la avería si es una ruta de rescate
+                            startTime = r.inicioEntregas();
+                            Ubicacion origen = r.origenEntregas();
+                            startX = origen != null ? origen.getPosX() : 27;
+                            startY = origen != null ? origen.getPosY() : 14;
                         } else {
                             ParadaRuta prev = r.getParadas().get(pos - 1);
                             startTime = prev.getHoraEstimadaLlegada().plusMinutes(prev.getTiempoServicioMin());
@@ -619,7 +653,7 @@ public class SimulacionSession {
                 ruta.setId(RUTA_ID_SEQ.getAndIncrement());
             }
             Almacen origen = planificador.seleccionarAlmacenOrigen(ruta.getParadas().isEmpty() ? null : ruta.getParadas().get(0).getPedido());
-            ruta.setAlmacenOrigen(origen);
+            ruta.setAlmacenOrigen(Planificador.almacenDeSalida(ruta, origen, almacenRepo.findAll()));
 
             if (!ruta.capacidadExcedida() && ruta.cumplePlazos()) {
                 int parOrden = 1;
@@ -918,7 +952,8 @@ public class SimulacionSession {
                             .camino(calcularCamino(r, retorno, redVialService, instante))
                             .almacenRetornoCodigo(retorno != null ? retorno.getCodigo() : null)
                             .horaLlegadaAlmacen(retorno != null ? r.horaLlegadaAlmacen(retorno) : null)
-                            .build();
+                            .build()
+                            .conRescate(r.getRescate());
                 })
                 .collect(Collectors.toList());
     }

@@ -73,6 +73,15 @@ public class Ruta {
     private Almacen almacenOrigen;
 
     /**
+     * Solo en rutas de rescate: tramo previo hasta el punto de la avería y trasvase. No se guarda como
+     * columna (sería la tabla "trasvase" del documento 62); la operación diaria lo vuelve a adjuntar
+     * desde RegistroRescates cada vez que carga la ruta.
+     */
+    @jakarta.persistence.Transient
+    @ToString.Exclude
+    private TramoRescate rescate;
+
+    /**
      * Calcula el costo estimado multiplicando la distancia total por la tarifa del vehículo (RF-05).
      * Redondeado a dos decimales en soles.
      */
@@ -164,6 +173,14 @@ public class Ruta {
     }
 
     /**
+     * Paquetes que lleva físicamente el vehículo de esta ruta en ese instante: en una ruta de rescate,
+     * antes de terminar el trasvase la carga sigue en la unidad averiada.
+     */
+    public int cargaABordo(LocalDateTime instante) {
+        return trasvasePendiente(instante) ? 0 : cargaPendiente();
+    }
+
+    /**
      * Ruta en curso de cada unidad: si el algoritmo le encadenó varias, la más antigua sin completar.
      * Sirve para saber qué carga lleva cada vehículo en este momento.
      */
@@ -178,6 +195,47 @@ public class Ruta {
             }
         }
         return enCurso;
+    }
+
+    // ===== Inicio de las entregas (rutas normales y de rescate) =====
+
+    /** Instante desde el que el vehículo sale hacia la primera parada. */
+    public LocalDateTime inicioEntregas() {
+        return rescate != null ? rescate.getFin() : fechaHoraGeneracion;
+    }
+
+    /** Punto desde el que el vehículo sale hacia la primera parada. */
+    public Ubicacion origenEntregas() {
+        if (rescate != null) return rescate.getPuntoTrasvase();
+        return almacenOrigen != null ? almacenOrigen.getUbicacion() : null;
+    }
+
+    /** true si es una ruta de rescate cuyo trasvase aún no termina en ese instante. */
+    public boolean trasvasePendiente(LocalDateTime instante) {
+        return rescate != null && instante != null && instante.isBefore(rescate.getFin());
+    }
+
+    /**
+     * Rutas de rescate: mientras la unidad va al punto de la avería o trasvasa, se actualiza su posición
+     * (por calles, primero en X y luego en Y) y no entrega nada todavía.
+     *
+     * @return true si la unidad aún está en el tramo de rescate (el llamador no debe procesar paradas)
+     */
+    public boolean avanzarTramoRescate(LocalDateTime instante) {
+        if (!trasvasePendiente(instante) || unidadTransporte == null) return false;
+        if (estado == EstadoRuta.PLANIFICADA) estado = EstadoRuta.EN_EJECUCION;
+        LocalDateTime salida = rescate.getSalida();
+        LocalDateTime llegada = rescate.getLlegada();
+        if (instante.isBefore(llegada)) {
+            long total = java.time.Duration.between(salida, llegada).getSeconds();
+            long hecho = Math.max(0, java.time.Duration.between(salida, instante).getSeconds());
+            double f = total > 0 ? Math.min(1.0, (double) hecho / total) : 1.0;
+            unidadTransporte.setUbicacionActual(enL(rescate.getPartida(), rescate.getPuntoTrasvase(), f));
+        } else {
+            Ubicacion punto = rescate.getPuntoTrasvase();
+            unidadTransporte.setUbicacionActual(new Ubicacion(punto.getPosX(), punto.getPosY()));
+        }
+        return true;
     }
 
     // ===== Regreso al almacén al terminar las entregas (FAQ 10) =====

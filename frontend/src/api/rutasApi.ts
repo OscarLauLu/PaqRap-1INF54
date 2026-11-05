@@ -27,6 +27,12 @@ export interface RutaApi {
   /** Regreso al terminar: almacén con stock más cercano y hora de llegada (el camino ya lo incluye) */
   almacenRetornoCodigo?: string | null;
   horaLlegadaAlmacen?: string | null;
+  /** Solo rutas de rescate: va al punto de la avería, trasvasa 30 min y luego entrega */
+  rescataA?: string | null;
+  partida?: Ubicacion | null;
+  puntoTrasvase?: Ubicacion | null;
+  llegadaTrasvase?: string | null;
+  finTrasvase?: string | null;
 }
 
 export const rutasApi = {

@@ -124,6 +124,18 @@ export const App: React.FC = () => {
         const salida = parsearFechaLocal(r.fechaHoraGeneracion);
         const horarioParadas: NonNullable<RutaMapa['horario']>['paradas'] = [];
         let horarioCompleto = salida !== null;
+        // Ruta de rescate: antes de las entregas va al punto de la avería y trasvasa (30 min)
+        if (r.puntoTrasvase) {
+          const punto = r.puntoTrasvase;
+          const i = camino.findIndex((c, k) => k >= 1 && mismaUbicacion(c, punto));
+          const llegada = parsearFechaLocal(r.llegadaTrasvase);
+          const fin = parsearFechaLocal(r.finTrasvase);
+          if (i === -1 || llegada === null || fin === null) horarioCompleto = false;
+          else {
+            horarioParadas.push({ idx: i, llegada, salida: fin });
+            buscarDesde = i;
+          }
+        }
         for (const p of paradas) {
           const i = camino.findIndex((c, k) => k >= buscarDesde && mismaUbicacion(c, p.destino));
           if (i === -1) { horarioCompleto = false; continue; }
@@ -149,7 +161,7 @@ export const App: React.FC = () => {
         const puntos = camino.slice(inicio);
         // caminoCompleto: el mapa anima al vehículo recorriendo este camino, para que no cruce manzanas en diagonal
         return puntos.length >= 2
-          ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true, caminoCompleto: camino, horario }
+          ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true, caminoCompleto: camino, horario, rescataA: r.rescataA ?? undefined }
           : null;
       }
 

@@ -36,4 +36,24 @@ public class RutaDTO {
     // El camino ya incluye el tramo de regreso, así el mapa muestra al vehículo volviendo.
     private String almacenRetornoCodigo;
     private LocalDateTime horaLlegadaAlmacen;
+
+    // Solo rutas de rescate: la unidad va al punto de la avería, trasvasa 30 min y luego entrega.
+    // El camino empieza en "partida" y pasa por "puntoTrasvase" antes de la primera parada.
+    private String rescataA;
+    private Ubicacion partida;
+    private Ubicacion puntoTrasvase;
+    private LocalDateTime llegadaTrasvase;
+    private LocalDateTime finTrasvase;
+
+    /** Copia los datos del tramo de rescate (si la ruta lo tiene) y devuelve este mismo DTO. */
+    public RutaDTO conRescate(com.paqrap.logistics.planificacion.model.TramoRescate t) {
+        if (t != null) {
+            this.rescataA = t.getUnidadAveriada();
+            this.partida = t.getPartida();
+            this.puntoTrasvase = t.getPuntoTrasvase();
+            this.llegadaTrasvase = t.getLlegada();
+            this.finTrasvase = t.getFin();
+        }
+        return this;
+    }
 }

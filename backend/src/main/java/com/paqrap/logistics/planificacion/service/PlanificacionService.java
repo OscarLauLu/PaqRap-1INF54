@@ -44,6 +44,8 @@ public class PlanificacionService {
     private final RelojSimulado relojSimulado;
     // Para elegir el almacén de regreso de cada ruta
     private final AlmacenRepository almacenRepository;
+    // Tramos de rescate (trasvase) de las rutas guardadas
+    private final RegistroRescates registroRescates;
 
     @Transactional
     public PlanificacionResultDTO ejecutarCiclo(LocalDateTime instante) {
@@ -66,6 +68,7 @@ public class PlanificacionService {
     @Transactional(readOnly = true)
     public List<RutaDTO> listarRutas(EstadoRuta estado) {
         List<Ruta> rutas = (estado != null) ? rutaRepository.findByEstado(estado) : rutaRepository.findAll();
+        registroRescates.adjuntar(rutas);
         List<Almacen> almacenes = almacenRepository.findAll();
         return rutas.stream().map(r -> mapearRutaADTO(r, almacenes)).collect(Collectors.toList());
     }
@@ -112,7 +115,8 @@ public class PlanificacionService {
                 .camino(calcularCamino(r, retorno))
                 .almacenRetornoCodigo(retorno != null ? retorno.getCodigo() : null)
                 .horaLlegadaAlmacen(retorno != null ? r.horaLlegadaAlmacen(retorno) : null)
-                .build();
+                .build()
+                .conRescate(r.getRescate());
     }
 
     /**

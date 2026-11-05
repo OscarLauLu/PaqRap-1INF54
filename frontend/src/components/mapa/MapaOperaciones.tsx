@@ -24,6 +24,8 @@ export interface RutaMapa {
    * del vehículo en cada cuadro, sin esperar a la siguiente consulta al backend.
    */
   horario?: HorarioRuta;
+  /** Ruta de rescate: código de la unidad averiada cuya carga va a trasvasar */
+  rescataA?: string;
 }
 
 /** Reloj simulado que recibe el mapa: con él se estima la hora simulada entre consultas */
@@ -711,8 +713,13 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               <BarraPopup valor={u.cargaActual} total={capacidad} color={COLOR_TIPO[u.tipoNombre] ?? '#3B82F6'} />
             </div>
             <FilaPopup etiqueta="Pendientes">
-              {pendientes.length > 0 ? `${pendientes.length} · sigue ${pendientes[0]}` : 'Sin ruta asignada'}
+              {pendientes.length > 0 ? `${pendientes.length} · sigue ${pendientes[0]}` : rutaDe.has(u.codigo) ? 'Regresando al almacén' : 'Sin ruta asignada'}
             </FilaPopup>
+            {rutaDe.get(u.codigo)?.rescataA && (
+              <FilaPopup etiqueta="Rescate">
+                <span className="font-semibold text-red-700">Trasvase de la carga de {rutaDe.get(u.codigo)?.rescataA}</span>
+              </FilaPopup>
+            )}
             {u.estadoOperativo === 'AVERIADA' && (() => {
               const info = AVERIA_TIPO[tipoAveriaDe(u)];
               return (

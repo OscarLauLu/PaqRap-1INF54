@@ -63,6 +63,7 @@ public class MotorSimulacion {
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private final com.paqrap.logistics.flota.service.PlanMantenimientoService planMantenimiento;
     private final com.paqrap.logistics.planificacion.repository.ParadaRutaRepository paradaRutaRepository;
+    private final com.paqrap.logistics.planificacion.service.RegistroRescates registroRescates;
 
     /** Unidades puestas en EN_MANTENIMIENTO por el plan preventivo (para devolverlas a DISPONIBLE). */
     private final java.util.Set<String> enMantenimientoPorPlan = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -339,7 +340,7 @@ public class MotorSimulacion {
 
         // --- Carga que lleva cada vehículo tras las entregas y las rutas nuevas de este paso ---
         try {
-            transactionTemplate.executeWithoutResult(status -> actualizarCargas());
+            transactionTemplate.executeWithoutResult(status -> actualizarCargas(instanteActual));
         } catch (Exception e) {
             log.error("Error actualizando la carga de los vehículos en instante {}: {}", instanteActual, e.getMessage());
         }
@@ -450,10 +451,38 @@ public class MotorSimulacion {
                 .map(com.paqrap.logistics.almacen.model.Almacen::getUbicacion)
                 .findFirst()
                 .orElse(new com.paqrap.logistics.redvial.model.Ubicacion(27, 14));
-        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutaRepository.findAll());
+        List<Ruta> todas = rutaRepository.findAll();
+        registroRescates.adjuntar(todas);
+        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(todas);
+        List<com.paqrap.logistics.almacen.model.Almacen> almacenes = almacenRepository.findAll();
         for (Averia a : activas) {
             UnidadTransporte u = a.getUnidad();
             if (u == null || a.getFechaHoraEvento() == null) continue;
+            // Rescate: una unidad libre o que regresa va a trasvasar la carga (una vez por avería)
+            if (!registroRescates.tieneRescate(a.getCodigo())) {
+                Ruta rescate = com.paqrap.logistics.planificacion.model.PlanificadorTrasvase.planificar(
+                        a, enCurso.get(u.getCodigo()), unidadRepository.findAll(), enCurso, instante, almacenes,
+                        "RES-" + a.getCodigo());
+                if (rescate != null) {
+                    Ruta guardada = rutaRepository.save(rescate);
+                    guardada.setRescate(rescate.getRescate());
+                    registroRescates.registrar(guardada.getId(), rescate.getRescate());
+                    guardada.getParadas().forEach(p -> {
+                        if (p.getPedido() != null) {
+                            p.getPedido().setRutaAsignadaId(guardada.getId());
+                            pedidoRepository.save(p.getPedido());
+                        }
+                    });
+                    unidadRepository.save(guardada.getUnidadTransporte());
+                    registrarCostosYRutas(List.of(guardada));
+                    log.info("{} va a rescatar {} paquetes de {} (trasvase {} a {})",
+                            guardada.getUnidadTransporte().getCodigo(), rescate.getRescate().getCantidadProductos(),
+                            u.getCodigo(), rescate.getRescate().getLlegada(), rescate.getRescate().getFin());
+                    todas = rutaRepository.findAll();
+                    registroRescates.adjuntar(todas);
+                    enCurso = Ruta.rutaEnCursoPorUnidad(todas);
+                }
+            }
             Ruta ruta = enCurso.get(u.getCodigo());
             List<com.paqrap.logistics.planificacion.model.ParadaRuta> liberadas = new ArrayList<>();
             AtencionAverias.Cambio cambio = AtencionAverias.avanzar(a, u, ruta, instante, central, liberadas);
@@ -473,11 +502,20 @@ public class MotorSimulacion {
      * Carga actual de cada vehículo = paquetes aún no entregados de su ruta en curso.
      * Solo se guardan las unidades cuya carga cambió.
      */
-    private void actualizarCargas() {
-        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutaRepository.findAll());
+    private void actualizarCargas(LocalDateTime instante) {
+        List<Ruta> todas = rutaRepository.findAll();
+        registroRescates.adjuntar(todas);
+        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(todas);
+        // Carga de rescates aún no trasvasada: sigue a bordo de la unidad averiada
+        java.util.Map<String, Integer> porTrasvasar = new java.util.HashMap<>();
+        for (Ruta r : todas) {
+            if (r.getEstado() != EstadoRuta.COMPLETADA && r.trasvasePendiente(instante)) {
+                porTrasvasar.merge(r.getRescate().getUnidadAveriada(), r.cargaPendiente(), Integer::sum);
+            }
+        }
         for (UnidadTransporte u : unidadRepository.findAll()) {
             Ruta r = enCurso.get(u.getCodigo());
-            int carga = (r != null) ? r.cargaPendiente() : 0;
+            int carga = ((r != null) ? r.cargaABordo(instante) : 0) + porTrasvasar.getOrDefault(u.getCodigo(), 0);
             if (u.getCargaActual() != carga) {
                 u.setCargaActual(carga);
                 unidadRepository.save(u);
@@ -521,6 +559,7 @@ public class MotorSimulacion {
     private void ejecutarMovimientosFlota(LocalDateTime instante) {
         // Obtenemos las rutas en ejecución o recién planificadas
         List<Ruta> rutasActivas = rutaRepository.findAll();
+        registroRescates.adjuntar(rutasActivas);
         List<com.paqrap.logistics.almacen.model.Almacen> almacenes = null; // se cargan solo si alguien regresa
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
@@ -530,6 +569,13 @@ public class MotorSimulacion {
             // Si el instante actual corresponde a la hora de alimentación obligatoria del turno (RF-44),
             // el conductor se encuentra en refrigerio y no realiza entregas durante esta hora
             if (Turno.esHoraAlimentacion(instante.toLocalTime())) {
+                continue;
+            }
+
+            // Ruta de rescate: primero va al punto de la avería y trasvasa (30 min)
+            if (r.avanzarTramoRescate(instante)) {
+                unidadRepository.save(r.getUnidadTransporte());
+                rutaRepository.save(r);
                 continue;
             }
 
@@ -572,9 +618,11 @@ public class MotorSimulacion {
                         LocalDateTime startTime;
                         int startX, startY;
                         if (pos == 0) {
-                            startTime = r.getFechaHoraGeneracion();
-                            startX = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosX() : 27;
-                            startY = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosY() : 14;
+                            // Sale del almacén, o del punto de la avería si es una ruta de rescate
+                            startTime = r.inicioEntregas();
+                            com.paqrap.logistics.redvial.model.Ubicacion origen = r.origenEntregas();
+                            startX = origen != null ? origen.getPosX() : 27;
+                            startY = origen != null ? origen.getPosY() : 14;
                         } else {
                             com.paqrap.logistics.planificacion.model.ParadaRuta prev = r.getParadas().get(pos - 1);
                             startTime = prev.getHoraEstimadaLlegada().plusMinutes(prev.getTiempoServicioMin());
