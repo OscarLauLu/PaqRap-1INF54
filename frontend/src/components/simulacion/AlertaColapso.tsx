@@ -24,9 +24,11 @@ export const AlertaColapso: React.FC<Props> = ({ metricas, detenidaPorColapso, v
   const abierta = visible && hayColapso && !cerrada;
 
   // Al iniciar otra corrida (ya no hay colapso) la ventana queda lista para el próximo
-  useEffect(() => {
+  const [habiaColapso, setHabiaColapso] = useState(hayColapso);
+  if (hayColapso !== habiaColapso) {
+    setHabiaColapso(hayColapso);
     if (!hayColapso) setCerrada(false);
-  }, [hayColapso]);
+  }
 
   // Esc cierra la ventana
   useEffect(() => {

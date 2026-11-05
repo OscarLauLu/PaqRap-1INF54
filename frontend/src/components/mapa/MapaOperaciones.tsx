@@ -4,6 +4,8 @@ import { Info, Maximize2, Minus, Plus, X } from 'lucide-react';
 import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
 import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
+import { parsearFechaLocal } from '../../utils/fechaLocal';
+import { crearHorario, distanciaEn, sinAlimentacion, type Horario } from './movimiento';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
 export interface RutaMapa {
@@ -15,6 +17,20 @@ export interface RutaMapa {
   esCamino?: boolean;
   /** Camino completo de la ruta (desde el almacén): el vehículo se anima sobre él, siguiendo las calles */
   caminoCompleto?: Ubicacion[];
+  /**
+   * Horario de la ruta (ms en hora local del simulador): salida del almacén y, por parada, su índice
+   * en caminoCompleto, la llegada y el fin del acondicionamiento. Con esto el mapa calcula la posición
+   * del vehículo en cada cuadro, sin esperar a la siguiente consulta al backend.
+   */
+  horario?: { salida: number; paradas: Array<{ idx: number; llegada: number; salida: number }> };
+}
+
+/** Reloj simulado que recibe el mapa: con él se estima la hora simulada entre consultas */
+export interface RelojMapa {
+  instanteActual?: string;
+  factorAceleracion?: number;
+  /** false en pausa o sin simulación: los vehículos se quedan quietos */
+  corriendo: boolean;
 }
 
 interface MapaOperacionesProps {
@@ -29,6 +45,8 @@ interface MapaOperacionesProps {
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
   pausado?: boolean;
+  /** Reloj simulado: si llega, los vehículos con horario se mueven de forma continua */
+  reloj?: RelojMapa;
   /** Filtros del panel derecho: lo filtrado allí también se oculta en el mapa */
   filtros?: FiltrosPanel;
   /** En la operación diaria muestra pedidos por atender */
@@ -157,6 +175,9 @@ const puntoEn = (t: Trazado, s: number): { x: number; y: number; ang: number } =
   return { x: ax + u * (bx - ax), y: ay + u * (by - ay), ang: (Math.atan2(by - ay, bx - ax) * 180) / Math.PI };
 };
 
+// Si el reloj deja de llegar, no se adelanta más que esto (en tiempo real) para no inventar posiciones
+const MAX_EXTRAPOLACION_MS = 10_000;
+
 const limitar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 /** Código corto del pedido para la etiqueta del mapa: "PED-573-162fbe" → "573" (el completo está en el popup) */
@@ -227,6 +248,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   onSelectUnidad,
   escenario,
   pausado = false,
+  reloj,
   filtros,
   averias = [],
 }) => {
@@ -416,8 +438,95 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   const toSvgX = (x: number) => x;
   const toSvgY = (y: number) => 50 - y;
 
-  // Cada vez que llegan posiciones nuevas, cada vehículo con ruta recorre su camino desde donde
-  // está dibujado hasta su nueva posición, en el mismo tiempo que tarda la siguiente consulta.
+  // ---- Movimiento continuo: horario de cada ruta + reloj simulado estimado entre consultas ----
+  const horarios = useMemo(() => {
+    const m = new Map<string, Horario>();
+    rutas.forEach((r) => {
+      const tr = trazados.get(r.unidadCodigo);
+      // Los índices del horario apuntan a caminoCompleto, que es el camino del trazado
+      if (!tr || !r.horario || !r.caminoCompleto || r.caminoCompleto.length < 2) return;
+      const h = crearHorario(tr, r.horario);
+      if (h) m.set(r.unidadCodigo, h);
+    });
+    return m;
+  }, [rutas, trazados]);
+
+  const instanteMs = parsearFechaLocal(reloj?.instanteActual);
+  const factorReloj = reloj?.factorAceleracion && reloj.factorAceleracion > 0 ? reloj.factorAceleracion : 1;
+  const relojCorriendo = !!reloj?.corriendo && !pausado;
+  const relojDisponible = instanteMs !== null;
+
+  // Última hora simulada recibida y en qué momento (real) llegó; entre consultas se extrapola
+  const relojRef = useRef<{ ms: number; recibido: number; factor: number; corriendo: boolean } | null>(null);
+  const mostradoRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (instanteMs === null) {
+      relojRef.current = null;
+      mostradoRef.current = null;
+      return;
+    }
+    relojRef.current = { ms: instanteMs, recibido: performance.now(), factor: factorReloj, corriendo: relojCorriendo };
+  }, [instanteMs, factorReloj, relojCorriendo]);
+
+  /** Hora simulada estimada ahora: no retrocede por el retraso de la red (sí ante otra corrida) */
+  const simAhora = (ahora: number): number | null => {
+    const r = relojRef.current;
+    if (!r) return null;
+    const extra = r.corriendo ? Math.min(ahora - r.recibido, MAX_EXTRAPOLACION_MS) * r.factor : 0;
+    let ms = r.ms + extra;
+    const previo = mostradoRef.current;
+    if (previo !== null && ms < previo && previo - ms < 10 * 60_000) ms = previo;
+    mostradoRef.current = ms;
+    return ms;
+  };
+
+  const horariosRef = useRef(horarios);
+  horariosRef.current = horarios;
+  const trazadosRef = useRef(trazados);
+  trazadosRef.current = trazados;
+  const averiadosRef = useRef(new Set<string>());
+  averiadosRef.current = new Set(
+    (Array.isArray(unidades) ? unidades : []).filter((u) => u.estadoOperativo === 'AVERIADO').map((u) => u.codigo),
+  );
+
+  /** Ubica cada vehículo con horario en su posición para la hora simulada actual */
+  const dibujarContinuo = (ahora: number) => {
+    const ms = simAhora(ahora);
+    if (ms === null) return;
+    const msVisible = sinAlimentacion(ms);
+    horariosRef.current.forEach((h, codigo) => {
+      if (averiadosRef.current.has(codigo)) return;
+      const tr = trazadosRef.current.get(codigo);
+      const nodo = nodoVehiculo.current.get(codigo);
+      if (!tr || !nodo) return;
+      const s = distanciaEn(h, msVisible);
+      const { x, y, ang } = puntoEn(tr, s);
+      nodo.setAttribute('transform', `translate(${toSvgX(x)} ${toSvgY(y)})`);
+      giroVehiculo.current.get(codigo)?.setAttribute('transform', `rotate(${-ang})`);
+      recorrido.current.set(codigo, { clave: tr.clave, s });
+    });
+  };
+  const dibujarContinuoRef = useRef(dibujarContinuo);
+  dibujarContinuoRef.current = dibujarContinuo;
+
+  // Un cuadro por refresco de pantalla mientras el mapa esté abierto
+  useEffect(() => {
+    let id = 0;
+    const paso = (momento: number) => {
+      dibujarContinuoRef.current(momento);
+      id = requestAnimationFrame(paso);
+    };
+    id = requestAnimationFrame(paso);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Tras cada render se ubican de inmediato, para que nadie aparezca un instante en otro lugar
+  useLayoutEffect(() => {
+    dibujarContinuoRef.current(performance.now());
+  });
+
+  // Respaldo para vehículos sin horario (o sin reloj): cada vez que llegan posiciones nuevas, recorre
+  // su camino desde donde está dibujado hasta su nueva posición, en lo que tarda la siguiente consulta.
   useLayoutEffect(() => {
     const ahora = performance.now();
     (Array.isArray(unidades) ? unidades : []).forEach((u) => {
@@ -425,6 +534,12 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       if (!t || u.estadoOperativo === 'AVERIADO') {
         animaciones.current.delete(u.codigo);
         recorrido.current.delete(u.codigo);
+        ultimaPosBackend.current.delete(u.codigo);
+        return;
+      }
+      if (relojDisponible && horarios.has(u.codigo)) {
+        // Lo mueve el movimiento continuo
+        animaciones.current.delete(u.codigo);
         ultimaPosBackend.current.delete(u.codigo);
         return;
       }
@@ -466,7 +581,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       if (cuadro.current !== null) cancelAnimationFrame(cuadro.current);
       cuadro.current = null;
     };
-  }, [unidades, trazados, pausado]);
+  }, [unidades, trazados, pausado, horarios, relojDisponible]);
 
   // ---- Qué vehículos se dibujan ----
   // Solo los que tienen trabajo: con ruta, en ruta, que se movieron hace poco o averiados (y el

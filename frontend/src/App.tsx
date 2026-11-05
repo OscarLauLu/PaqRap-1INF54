@@ -25,6 +25,7 @@ import { bloqueosApi } from './api/bloqueosApi';
 import { rutasApi } from './api/rutasApi';
 import type { RutaApi } from './api/rutasApi';
 import type { RutaMapa } from './components/mapa/MapaOperaciones';
+import { parsearFechaLocal } from './utils/fechaLocal';
 
 type Seccion = 'registro' | 'configuracion' | 'simulacion' | 'reportes';
 
@@ -85,13 +86,17 @@ export const App: React.FC = () => {
     return () => { vivo = false; clearInterval(t); };
   }, []);
 
-  // Rutas vigentes = todas las que no están COMPLETADAS (incluye las REPLANIFICADAS).
-  // Si un vehículo tiene varias, se usa la más reciente (id mayor) para no dibujar líneas repetidas.
+  // Rutas vigentes = todas las que no están COMPLETADAS (incluye las REPLANIFICADAS, que son la misma
+  // ruta con otra etiqueta). Si el planificador le encadenó varias a un vehículo, se dibuja la que está
+  // en curso: la que sale primero. Es la que el motor está moviendo y la que define su carga actual.
+  const salidaDe = (r: RutaApi) => parsearFechaLocal(r.fechaHoraGeneracion) ?? Number.MAX_SAFE_INTEGER;
   const rutaVigentePorUnidad = new Map<string, RutaApi>();
   for (const r of rutasApiData) {
     if (r.estado === 'COMPLETADA') continue;
+    if (!(r.paradas || []).some((p) => !p.entregada)) continue;
     const actual = rutaVigentePorUnidad.get(r.unidadCodigo);
-    if (!actual || r.id > actual.id) rutaVigentePorUnidad.set(r.unidadCodigo, r);
+    const antes = actual && (salidaDe(r) < salidaDe(actual) || (salidaDe(r) === salidaDe(actual) && r.id < actual.id));
+    if (!actual || antes) rutaVigentePorUnidad.set(r.unidadCodigo, r);
   }
 
   // Solo el tramo que falta recorrer de cada ruta.
@@ -115,13 +120,21 @@ export const App: React.FC = () => {
         let desde = 0;       // índice de la última parada ya entregada (o el almacén)
         let hasta = -1;      // índice de la próxima parada pendiente
         let buscarDesde = 0;
+        // Horario de la ruta sobre el camino: el mapa calcula con él dónde va el vehículo en cada cuadro
+        const salida = parsearFechaLocal(r.fechaHoraGeneracion);
+        const horarioParadas: NonNullable<RutaMapa['horario']>['paradas'] = [];
+        let horarioCompleto = salida !== null;
         for (const p of paradas) {
           const i = camino.findIndex((c, k) => k >= buscarDesde && mismaUbicacion(c, p.destino));
-          if (i === -1) continue;
+          if (i === -1) { horarioCompleto = false; continue; }
           buscarDesde = i;
           if (p.entregada) desde = i;
           else if (hasta === -1) hasta = i;
+          const llegada = parsearFechaLocal(p.horaEstimadaLlegada);
+          if (llegada === null) { horarioCompleto = false; continue; }
+          horarioParadas.push({ idx: i, llegada, salida: llegada + (p.tiempoServicioMin ?? 60) * 60_000 });
         }
+        const horario = horarioCompleto && salida !== null ? { salida, paradas: horarioParadas } : undefined;
         // Se arranca en la esquina más cercana al vehículo para no dibujar el tramo que ya pasó
         let inicio = desde;
         if (unidad?.ubicacionActual && hasta > desde) {
@@ -134,7 +147,7 @@ export const App: React.FC = () => {
         const puntos = camino.slice(inicio);
         // caminoCompleto: el mapa anima al vehículo recorriendo este camino, para que no cruce manzanas en diagonal
         return puntos.length >= 2
-          ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true, caminoCompleto: camino }
+          ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true, caminoCompleto: camino, horario }
           : null;
       }
 
@@ -416,6 +429,11 @@ export const App: React.FC = () => {
                       onSelectUnidad={setSelectedUnidadCodigo}
                       escenario={NOMBRE_ESCENARIO[escenarioSel]}
                       pausado={estaPausada}
+                      reloj={{
+                        instanteActual: reloj.instanteActual,
+                        factorAceleracion: reloj.factorAceleracion,
+                        corriendo: reloj.estadoEjecucion === 'EN_EJECUCION',
+                      }}
                       mostrarPorAtender={esOperacion}
                       filtros={filtros}
                     />
