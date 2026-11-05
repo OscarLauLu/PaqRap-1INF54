@@ -280,6 +280,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   // --- Animación sobre la ruta (se mueve el DOM directamente, sin volver a dibujar con React) ---
   const nodoVehiculo = useRef(new Map<string, SVGGElement>());   // grupo que se desplaza
   const giroVehiculo = useRef(new Map<string, SVGGElement>());   // grupo que gira
+  const lineaRuta = useRef(new Map<string, SVGPathElement>());    // línea punteada de lo que le falta recorrer
   const recorrido = useRef(new Map<string, { clave: string; s: number }>()); // dónde se dibujó por última vez
   const animaciones = useRef(new Map<string, { t: Trazado; s0: number; s1: number; t0: number }>());
   const cuadro = useRef<number | null>(null);
@@ -492,6 +493,15 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     (Array.isArray(unidades) ? unidades : []).filter((u) => u.estadoOperativo === 'AVERIADA').map((u) => u.codigo),
   );
 
+  /** Línea de lo que le falta recorrer: desde donde está dibujado el vehículo hasta el final del camino */
+  const caminoRestante = (tr: Trazado, s: number, x: number, y: number): string => {
+    const partes = [`M ${toSvgX(x)} ${toSvgY(y)}`];
+    for (let i = 0; i < tr.pts.length; i++) {
+      if (tr.acum[i] > s + 1e-6) partes.push(`L ${toSvgX(tr.pts[i][0])} ${toSvgY(tr.pts[i][1])}`);
+    }
+    return partes.join(' ');
+  };
+
   /** Ubica cada vehículo con horario en su posición para la hora simulada actual */
   const dibujarContinuo = (ahora: number) => {
     const ms = simAhora(ahora);
@@ -506,6 +516,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       const { x, y, ang } = puntoEn(tr, s);
       nodo.setAttribute('transform', `translate(${toSvgX(x)} ${toSvgY(y)})`);
       giroVehiculo.current.get(codigo)?.setAttribute('transform', `rotate(${-ang})`);
+      lineaRuta.current.get(codigo)?.setAttribute('d', caminoRestante(tr, s, x, y));
       recorrido.current.set(codigo, { clave: tr.clave, s });
     });
   };
@@ -571,6 +582,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         const { x, y, ang } = puntoEn(a.t, s);
         nodoVehiculo.current.get(codigo)?.setAttribute('transform', `translate(${toSvgX(x)} ${toSvgY(y)})`);
         giroVehiculo.current.get(codigo)?.setAttribute('transform', `rotate(${-ang})`);
+        lineaRuta.current.get(codigo)?.setAttribute('d', caminoRestante(a.t, s, x, y));
         recorrido.current.set(codigo, { clave: a.t.clave, s });
         if (f >= 1) animaciones.current.delete(codigo);
       });
@@ -873,7 +885,13 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           const esSel = codigoSel === r.unidadCodigo;
           const hayOtraSel = !!codigoSel && !esSel;
           let d: string;
-          if (r.esCamino) {
+          const trazado = trazados.get(r.unidadCodigo);
+          const dibujado = recorrido.current.get(r.unidadCodigo);
+          if (trazado && dibujado && dibujado.clave === trazado.clave) {
+            // Pegada al vehículo: desde donde está dibujado hasta el final de su camino
+            const { x, y } = puntoEn(trazado, dibujado.s);
+            d = caminoRestante(trazado, dibujado.s, x, y);
+          } else if (r.esCamino) {
             // El backend ya entrega esquina por esquina esquivando bloqueos, por eso basta unirlas
             d = r.puntos.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${toSvgX(pt.posX)} ${toSvgY(pt.posY)}`).join(' ');
           } else {
@@ -894,6 +912,10 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           return (
             <path
               key={`ruta-${r.unidadCodigo}`}
+              ref={(el) => {
+                if (el) lineaRuta.current.set(r.unidadCodigo, el);
+                else lineaRuta.current.delete(r.unidadCodigo);
+              }}
               d={d}
               fill="none"
               stroke={colorRuta}
