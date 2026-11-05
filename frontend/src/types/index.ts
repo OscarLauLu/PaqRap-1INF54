@@ -116,6 +116,7 @@ export interface RelojSimuladoData {
   estadoEjecucion: EstadoEjecucionSimulacion;
   pedidosEnCurso?: number;
   totalDias?: number;
+  escenario?: string | null;
 }
 
 export interface MapaOperacionesData {
