@@ -57,7 +57,7 @@ export const App: React.FC = () => {
     cambiandoPausa,
     reanudar,
     alternarPausa,
-  } = useSimulacion(3000);
+  } = useSimulacion(1000);
   const { unidades, selectedUnidadCodigo, setSelectedUnidadCodigo } = useFlota(4000);
   const { pedidos } = useMapaOperaciones(4000);
   const { metricas } = useMetricas(5000);

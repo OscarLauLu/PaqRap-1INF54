@@ -6,7 +6,7 @@ import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
 import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
 import { parsearFechaLocal } from '../../utils/fechaLocal';
 import { averiasApi } from '../../api/averiasApi';
-import { crearHorario, distanciaEn, sinAlimentacion, type Horario, type HorarioRuta } from './movimiento';
+import { crearHorario, distanciaEn, sinAlimentacion, suavizarReloj, type Horario, type HorarioRuta } from './movimiento';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
 export interface RutaMapa {
@@ -472,14 +472,15 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     relojRef.current = { ms: instanteMs, recibido: performance.now(), factor: factorReloj, corriendo: relojCorriendo };
   }, [instanteMs, factorReloj, relojCorriendo]);
 
-  /** Hora simulada estimada ahora: no retrocede por el retraso de la red (sí ante otra corrida) */
+  /** Hora simulada que se muestra ahora: estimada entre consultas y corregida con suavidad (sin congelarse) */
+  const ultimoCuadroRef = useRef<number | null>(null);
   const simAhora = (ahora: number): number | null => {
     const r = relojRef.current;
     if (!r) return null;
-    const extra = r.corriendo ? Math.min(ahora - r.recibido, MAX_EXTRAPOLACION_MS) * r.factor : 0;
-    let ms = r.ms + extra;
-    const previo = mostradoRef.current;
-    if (previo !== null && ms < previo && previo - ms < 10 * 60_000) ms = previo;
+    const objetivo = r.ms + (r.corriendo ? Math.min(ahora - r.recibido, MAX_EXTRAPOLACION_MS) * r.factor : 0);
+    const dt = ultimoCuadroRef.current === null ? 0 : ahora - ultimoCuadroRef.current;
+    ultimoCuadroRef.current = ahora;
+    const ms = suavizarReloj(mostradoRef.current, objetivo, dt, r.corriendo, r.factor);
     mostradoRef.current = ms;
     return ms;
   };

@@ -59,3 +59,29 @@ export const sinAlimentacion = (ms: number): number => {
   d.setMinutes(0, 0, 0);
   return d.getTime();
 };
+
+/**
+ * Hora simulada que se muestra en cada cuadro. El mapa la estima entre consultas al backend, pero el
+ * backend se detiene unos segundos cada vez que planifica (el ACO), así que a veces la estimación
+ * queda adelantada. Antes el mapa se congelaba hasta que el reloj real la alcanzaba; ahora corrige
+ * suavemente: adelantado, avanza más lento (25 %); atrasado, se acerca hasta al doble de rápido.
+ * Nunca retrocede. Si la diferencia es enorme (otra corrida) se salta directo.
+ *
+ * @param previo    hora mostrada en el cuadro anterior (null al inicio)
+ * @param objetivo  hora estimada con la última consulta
+ * @param dtRealMs  tiempo real desde el cuadro anterior
+ */
+export const suavizarReloj = (
+  previo: number | null,
+  objetivo: number,
+  dtRealMs: number,
+  corriendo: boolean,
+  factor: number,
+): number => {
+  const MAX_DIFERENCIA_MS = 10 * 60_000;
+  if (previo === null || Math.abs(objetivo - previo) > MAX_DIFERENCIA_MS) return objetivo;
+  if (!corriendo) return Math.max(previo, objetivo);
+  const nominal = Math.min(Math.max(dtRealMs, 0), 250) * factor;   // avance normal de este cuadro
+  if (objetivo < previo) return previo + nominal * 0.25;           // adelantado: más lento, sin congelarse
+  return Math.min(objetivo, previo + nominal * 2);                 // atrasado: lo alcanza sin saltar
+};
