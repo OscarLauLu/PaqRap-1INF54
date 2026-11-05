@@ -1,8 +1,9 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Almacen, BloqueoVial, Pedido, Ubicacion, UnidadTransporte } from '../../types';
-import { Info, Wrench } from 'lucide-react';
+import { Info, Maximize2, Minus, Plus, X } from 'lucide-react';
 import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
+import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
 export interface RutaMapa {
@@ -28,8 +29,12 @@ interface MapaOperacionesProps {
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
   pausado?: boolean;
+  /** Filtros del panel derecho: lo filtrado allí también se oculta en el mapa */
+  filtros?: FiltrosPanel;
   /** En la operación diaria muestra pedidos por atender */
   mostrarPorAtender?: boolean;
+  /** Averías registradas (opcional): sirve para saber el tipo de avería de cada vehículo */
+  averias?: Array<{ idUnidad?: string; unidadCodigo?: string; tipo?: string; tipoAveria?: string; activa?: boolean }>;
 }
 
 /** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */
@@ -43,9 +48,12 @@ const parsePuntos = (texto: string): Array<[number, number]> =>
 const BASE = { x: -1, y: -1, w: 72, h: 52 };
 // Tamaño de los cuadros: 2 = cada cuadro de 1 km se ve el doble de grande que con la ciudad
 // completa en pantalla. Súbelo o bájalo (p. ej. 1.5 o 2.5) para ajustar el tamaño.
-const ESCALA = 1.2;
-const ANCHO_VISTA = BASE.w / ESCALA;
-const ALTO_VISTA = BASE.h / ESCALA;
+const ESCALA = 1.2; // zoom con el que arranca el mapa
+// Zoom: el usuario puede acercar o alejar de forma continua (rueda del mouse o botones + / −)
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 8;
+const anchoVista = (zoom: number) => BASE.w / zoom;
+const altoVista = (zoom: number) => BASE.h / zoom;
 
 
 // ===== Orientación de los vehículos (estilo GPS) =====
@@ -54,7 +62,18 @@ const ALTO_VISTA = BASE.h / ESCALA;
 // Almacenes: naranja, cian e índigo · Avería: amarillo con negro (como señal de peligro)
 const COLOR_TIPO: Record<string, string> = { Auto: '#2563EB', Moto: '#9333EA', Bicicleta: '#EC4899' };
 const COLOR_ALMACEN = { central: '#EA580C', norte: '#0891B2', este: '#4F46E5' };
-const COLOR_AVERIA = '#FACC15';
+// Avería por tipo (enunciado). Escala de riesgo: amarillo (bajo) → naranja (medio) → rojo oscuro (alto),
+// más el número del tipo, para distinguirlas sin depender solo del color
+const AVERIA_TIPO: Record<string, { color: string; texto: string; nombre: string; detalle: string; riesgo: string }> = {
+  '1': { color: '#FDE047', texto: '#713F12', nombre: 'Tipo 1 · leve', detalle: '2 h en el lugar', riesgo: 'Riesgo bajo' },
+  '2': { color: '#F97316', texto: '#FFFFFF', nombre: 'Tipo 2 · moderada', detalle: 'hasta el cambio de turno', riesgo: 'Riesgo medio' },
+  '3': { color: '#B91C1C', texto: '#FFFFFF', nombre: 'Tipo 3 · grave', detalle: '2 días o más en taller', riesgo: 'Riesgo alto' },
+};
+/** Normaliza "TIPO_2", "2", "tipo 2"… a "1" | "2" | "3" (o null si no se sabe) */
+const numeroTipoAveria = (valor: unknown): string | null => {
+  const m = /([123])/.exec(String(valor ?? ''));
+  return m ? m[1] : null;
+};
 // Color del pin de cada pedido según su criticidad (mismos colores del semáforo)
 const COLOR_CRITICIDAD: Record<string, string> = { VERDE: '#22B957', AMBAR: '#F5B900', ROJO: '#E53935' };
 // Todos los íconos (pedidos, vehículos y almacenes) miden lo mismo en el mapa: un tamaño mediano,
@@ -140,11 +159,63 @@ const puntoEn = (t: Trazado, s: number): { x: number; y: number; ang: number } =
 
 const limitar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
-/** Mantiene la vista dentro de la ciudad */
-const ajustarCentro = (x: number, y: number) => ({
-  x: limitar(x, BASE.x + ANCHO_VISTA / 2, BASE.x + BASE.w - ANCHO_VISTA / 2),
-  y: limitar(y, BASE.y + ALTO_VISTA / 2, BASE.y + BASE.h - ALTO_VISTA / 2),
-});
+/** Código corto del pedido para la etiqueta del mapa: "PED-573-162fbe" → "573" (el completo está en el popup) */
+const codigoCorto = (codigo: string) => {
+  const m = /^[A-Za-z]+-(\d+)/.exec(codigo);
+  return m ? m[1] : codigo.length > 8 ? codigo.slice(0, 8) : codigo;
+};
+
+// ===== Popup de detalle (clic en un vehículo, almacén o pedido) =====
+type Seleccion = { tipo: 'vehiculo' | 'almacen' | 'pedido'; codigo: string };
+const claveSel = (s: Seleccion) => `${s.tipo}:${s.codigo}`;
+
+// Datos del enunciado por tipo de vehículo (se usan si el backend no manda el dato)
+const DATOS_TIPO: Record<string, { velocidad: number; costoKm: number; capacidad: number }> = {
+  Auto: { velocidad: 40, costoKm: 8, capacidad: 24 },
+  Moto: { velocidad: 25, costoKm: 6, capacidad: 8 },
+  Bicicleta: { velocidad: 12, costoKm: 3, capacidad: 4 },
+};
+const ESTADO_UNIDAD: Record<string, { texto: string; clase: string }> = {
+  DISPONIBLE: { texto: 'Disponible', clase: 'bg-green-50 text-green-700 border-green-200' },
+  EN_RUTA: { texto: 'En ruta', clase: 'bg-blue-50 text-blue-700 border-blue-200' },
+  AVERIADO: { texto: 'Averiado', clase: 'bg-red-50 text-red-700 border-red-200' },
+  EN_MANTENIMIENTO: { texto: 'Mantenimiento', clase: 'bg-amber-50 text-amber-700 border-amber-200' },
+};
+const CRITICIDAD: Record<string, { texto: string; clase: string }> = {
+  VERDE: { texto: 'A tiempo', clase: 'bg-green-50 text-green-700 border-green-200' },
+  AMBAR: { texto: 'En riesgo', clase: 'bg-amber-50 text-amber-700 border-amber-200' },
+  ROJO: { texto: 'Crítico', clase: 'bg-red-50 text-red-700 border-red-200' },
+};
+const ESTADO_PEDIDO: Record<string, string> = {
+  REGISTRADO: 'Por atender',
+  PLANIFICADO: 'Planificado',
+  EN_RUTA: 'En ruta',
+  ENTREGADO: 'Entregado',
+  REASIGNADO: 'Reasignado',
+};
+
+const InsigniaPopup: React.FC<{ texto: string; clase: string }> = ({ texto, clase }) => (
+  <span className={`rounded-full border px-1.5 py-px text-[10px] font-semibold whitespace-nowrap ${clase}`}>{texto}</span>
+);
+const BarraPopup: React.FC<{ valor: number; total: number; color: string }> = ({ valor, total, color }) => (
+  <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+    <div className="h-1.5 rounded-full" style={{ width: total > 0 ? `${Math.min(100, (valor / total) * 100)}%` : 0, backgroundColor: color }} />
+  </div>
+);
+const FilaPopup: React.FC<{ etiqueta: string; children: React.ReactNode }> = ({ etiqueta, children }) => (
+  <div className="flex items-center justify-between gap-3">
+    <span className="text-gray-400">{etiqueta}</span>
+    <span className="font-semibold text-gray-800 text-right">{children}</span>
+  </div>
+);
+
+/** Lee el primer campo con valor entre varios nombres posibles (el backend puede llamarlos distinto) */
+const campo = (obj: object, nombres: string[]): unknown => {
+  const o = obj as Record<string, unknown>;
+  for (const n of nombres) if (o[n] !== undefined && o[n] !== null && o[n] !== '') return o[n];
+  return undefined;
+};
+
 
 export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   almacenes,
@@ -156,8 +227,23 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   onSelectUnidad,
   escenario,
   pausado = false,
+  filtros,
+  averias = [],
 }) => {
   const [showLeyenda, setShowLeyenda] = useState(false);
+
+  // --- Popup de detalle: clic en un ícono lo abre; clic en el mismo, en la ✕, en el mapa vacío o Esc lo cierra ---
+  const [seleccion, setSeleccion] = useState<Seleccion | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const contenedorRef = useRef<HTMLDivElement>(null);
+  const huboArrastre = useRef(false); // un arrastre del mapa no debe abrir ni cerrar el popup
+  const alternarSeleccion = (s: Seleccion) =>
+    setSeleccion((prev) => (prev && claveSel(prev) === claveSel(s) ? null : s));
+  const clicIcono = (e: React.MouseEvent, s: Seleccion) => {
+    e.stopPropagation();
+    if (huboArrastre.current) return;
+    alternarSeleccion(s);
+  };
 
   // Última posición y ángulo de cada vehículo: con eso se calcula hacia dónde se movió
   // y se mantiene su orientación cuando se detiene (como un auto estacionado).
@@ -191,22 +277,101 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     return m;
   }, [rutas]);
 
-  // --- Desplazamiento arrastrando, como en Google Maps (sin zoom) ---
-  const [centro, setCentro] = useState({ x: BASE.x + BASE.w / 2, y: BASE.y + BASE.h / 2 });
+  // --- Desplazamiento arrastrando y zoom continuo, como en Google Maps ---
+  const CENTRO_INICIAL = { x: BASE.x + BASE.w / 2, y: BASE.y + BASE.h / 2 };
+  const [vista, setVista] = useState({ zoom: ESCALA, ...CENTRO_INICIAL });
+  const vistaRef = useRef(vista);
+  vistaRef.current = vista;
+  const centro = vista;
   const svgRef = useRef<SVGSVGElement>(null);
   const arrastre = useRef<{ px: number; py: number; cx: number; cy: number; movido: boolean } | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
+  const animZoom = useRef<number | null>(null);
 
   // Unidades del mapa (km) por píxel de pantalla. Con preserveAspectRatio "slice" el mapa llena
   // todo el recuadro (sin franjas vacías), así que manda el lado con más píxeles por km.
-  const kmPorPixel = () => {
+  const kmPorPixel = (zoom = vistaRef.current.zoom) => {
     const el = svgRef.current;
     if (!el) return 0;
     const r = el.getBoundingClientRect();
-    return Math.min(ANCHO_VISTA / r.width, ALTO_VISTA / r.height);
+    return Math.min(anchoVista(zoom) / r.width, altoVista(zoom) / r.height);
   };
 
+  /** Mantiene la vista dentro de la ciudad usando lo que realmente se ve en pantalla
+   *  (así se puede llegar a todos los bordes al arrastrar con zoom) */
+  const ajustarCentro = (x: number, y: number, zoom: number) => {
+    const r = svgRef.current?.getBoundingClientRect();
+    const k = kmPorPixel(zoom);
+    const visibleAncho = r && k ? r.width * k : anchoVista(zoom);
+    const visibleAlto = r && k ? r.height * k : altoVista(zoom);
+    return {
+      x: visibleAncho >= BASE.w ? BASE.x + BASE.w / 2 : limitar(x, BASE.x + visibleAncho / 2, BASE.x + BASE.w - visibleAncho / 2),
+      y: visibleAlto >= BASE.h ? BASE.y + BASE.h / 2 : limitar(y, BASE.y + visibleAlto / 2, BASE.y + BASE.h - visibleAlto / 2),
+    };
+  };
+
+  /** Cambia el zoom dejando fijo el punto del mapa que está bajo el cursor (px, py) */
+  const zoomEn = (nuevoZoom: number, px?: number, py?: number) => {
+    const el = svgRef.current;
+    if (!el) return;
+    const v = vistaRef.current;
+    const z = limitar(nuevoZoom, ZOOM_MIN, ZOOM_MAX);
+    const r = el.getBoundingClientRect();
+    const ox = (px ?? r.left + r.width / 2) - (r.left + r.width / 2);
+    const oy = (py ?? r.top + r.height / 2) - (r.top + r.height / 2);
+    const dk = kmPorPixel(v.zoom) - kmPorPixel(z);
+    setVista({ zoom: z, ...ajustarCentro(v.x + ox * dk, v.y + oy * dk, z) });
+  };
+
+  /** Zoom de los botones: avanza poco a poco durante 250 ms, sin saltos */
+  const zoomAnimado = (objetivo: number) => {
+    if (animZoom.current !== null) cancelAnimationFrame(animZoom.current);
+    const inicio = performance.now();
+    const z0 = vistaRef.current.zoom;
+    const z1 = limitar(objetivo, ZOOM_MIN, ZOOM_MAX);
+    const paso = (t: number) => {
+      const f = Math.min(1, (t - inicio) / 250);
+      zoomEn(z0 * Math.pow(z1 / z0, 1 - Math.pow(1 - f, 3)));
+      animZoom.current = f < 1 ? requestAnimationFrame(paso) : null;
+    };
+    animZoom.current = requestAnimationFrame(paso);
+  };
+
+  /** Vuelve a la vista inicial */
+  const vistaInicial = () => {
+    if (animZoom.current !== null) cancelAnimationFrame(animZoom.current);
+    setVista({ zoom: ESCALA, ...CENTRO_INICIAL });
+  };
+
+  // Al abrir o cerrar el panel cambia el tamaño del mapa: se reacomoda la vista
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observador = new ResizeObserver(() => {
+      const v = vistaRef.current;
+      setVista({ zoom: v.zoom, ...ajustarCentro(v.x, v.y, v.zoom) });
+    });
+    observador.observe(el);
+    return () => observador.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Rueda del mouse: se registra a mano (passive: false) para que la página no haga scroll
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const alGirar = (e: WheelEvent) => {
+      e.preventDefault();
+      // Continuo: el zoom cambia en proporción a cuánto gira la rueda
+      zoomEn(vistaRef.current.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+    };
+    el.addEventListener('wheel', alGirar, { passive: false });
+    return () => el.removeEventListener('wheel', alGirar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const alPresionar = (e: React.PointerEvent<SVGSVGElement>) => {
+    huboArrastre.current = false;
     arrastre.current = { px: e.clientX, py: e.clientY, cx: centro.x, cy: centro.y, movido: false };
   };
 
@@ -218,11 +383,13 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     if (!a.movido && Math.hypot(dx, dy) < 4) return; // pequeño umbral: un clic no mueve el mapa
     if (!a.movido) {
       a.movido = true;
+      huboArrastre.current = true;
       setArrastrando(true);
       e.currentTarget.setPointerCapture(e.pointerId);
     }
     const k = kmPorPixel();
-    setCentro(ajustarCentro(a.cx - dx * k, a.cy - dy * k));
+    const z = vistaRef.current.zoom;
+    setVista({ zoom: z, ...ajustarCentro(a.cx - dx * k, a.cy - dy * k, z) });
   };
 
   const alSoltar = () => {
@@ -230,6 +397,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     setArrastrando(false);
   };
 
+  const ANCHO_VISTA = anchoVista(vista.zoom);
+  const ALTO_VISTA = altoVista(vista.zoom);
   const viewBox = `${centro.x - ANCHO_VISTA / 2} ${centro.y - ALTO_VISTA / 2} ${ANCHO_VISTA} ${ALTO_VISTA}`;
 
   // En el mapa se dibujan los pedidos ya asignados a un vehículo: planificados, en ruta, o que
@@ -322,8 +491,159 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   });
   const visibles = SOLO_VEHICULOS_CON_TRABAJO ? unidades.filter((u) => conTrabajo.has(u.codigo)) : unidades;
 
+  // Tipo de avería de cada vehículo: del propio vehículo si el backend lo manda; si no, de la lista de averías
+  const tipoAveriaDe = (u: UnidadTransporte): string => tipoAveriaInformado(u) ?? '1';
+  const tipoAveriaInformado = (u: UnidadTransporte): string | null => {
+    const propio = numeroTipoAveria(campo(u, ['tipoAveria', 'tipoAveriaActual', 'averiaTipo', 'tipoAveriaActiva']));
+    if (propio) return propio;
+    const registrada = [...averias]
+      .reverse()
+      .find((a) => (a.idUnidad ?? a.unidadCodigo) === u.codigo && a.activa !== false);
+    return registrada ? numeroTipoAveria(registrada.tipo ?? registrada.tipoAveria) : null;
+  };
+
+  // Esc cierra el popup
+  useEffect(() => {
+    if (!seleccion) return;
+    const alTeclear = (e: KeyboardEvent) => { if (e.key === 'Escape') setSeleccion(null); };
+    window.addEventListener('keydown', alTeclear);
+    return () => window.removeEventListener('keydown', alTeclear);
+  }, [seleccion]);
+
+  // El popup sigue a su ícono en cada cuadro (el vehículo se mueve, y el mapa se arrastra o hace zoom)
+  useEffect(() => {
+    if (!seleccion) return;
+    let cuadroPopup = 0;
+    const seguir = () => {
+      const svg = svgRef.current;
+      const cont = contenedorRef.current;
+      const pop = popupRef.current;
+      const el = svg?.querySelector(`[data-sel="${claveSel(seleccion)}"]`) as SVGGraphicsElement | null;
+      if (cont && pop) {
+        if (!el) {
+          pop.style.visibility = 'hidden'; // por ejemplo, si se ocultó con los filtros
+        } else {
+          const rc = cont.getBoundingClientRect();
+          const ri = el.getBoundingClientRect();
+          const ancho = pop.offsetWidth;
+          const alto = pop.offsetHeight;
+          // A la derecha del ícono; si no entra, a la izquierda. Siempre dentro del mapa.
+          let x = ri.right - rc.left + 10;
+          if (x + ancho > rc.width - 8) x = ri.left - rc.left - ancho - 10;
+          const y = limitar(ri.top - rc.top + ri.height / 2 - alto / 2, 8, rc.height - alto - 8);
+          pop.style.transform = `translate(${Math.max(8, x)}px, ${y}px)`;
+          pop.style.visibility = 'visible';
+        }
+      }
+      cuadroPopup = requestAnimationFrame(seguir);
+    };
+    cuadroPopup = requestAnimationFrame(seguir);
+    return () => cancelAnimationFrame(cuadroPopup);
+  }, [seleccion]);
+
+  // ---- Contenido del popup según lo seleccionado ----
+  const contenidoPopup = (() => {
+    if (!seleccion) return null;
+    if (seleccion.tipo === 'vehiculo') {
+      const u = unidades.find((x) => x.codigo === seleccion.codigo);
+      if (!u) return null;
+      const d = DATOS_TIPO[u.tipoNombre];
+      const capacidad = u.capacidadMaxima || d?.capacidad || 0;
+      const pendientes = rutaDe.get(u.codigo)?.codigosPedidos ?? [];
+      const est = ESTADO_UNIDAD[u.estadoOperativo] ?? { texto: u.estadoOperativo, clase: 'bg-gray-50 text-gray-700 border-gray-200' };
+      return {
+        color: COLOR_TIPO[u.tipoNombre] ?? COLOR_TIPO.Bicicleta,
+        titulo: `${u.tipoNombre} ${u.codigo}`,
+        insignia: <InsigniaPopup texto={est.texto} clase={est.clase} />,
+        cuerpo: (
+          <>
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-gray-400">Carga</span>
+                <span className="font-semibold text-gray-800">{u.cargaActual}/{capacidad} paquetes</span>
+              </div>
+              <BarraPopup valor={u.cargaActual} total={capacidad} color={COLOR_TIPO[u.tipoNombre] ?? '#3B82F6'} />
+            </div>
+            <FilaPopup etiqueta="Pendientes">
+              {pendientes.length > 0 ? `${pendientes.length} · sigue ${pendientes[0]}` : 'Sin ruta asignada'}
+            </FilaPopup>
+            {u.estadoOperativo === 'AVERIADO' && (() => {
+              const info = AVERIA_TIPO[tipoAveriaDe(u)];
+              return (
+                <FilaPopup etiqueta="Avería">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />
+                    {info.nombre} · {info.riesgo}
+                  </span>
+                </FilaPopup>
+              );
+            })()}
+            <FilaPopup etiqueta="Ubicación">({u.ubicacionActual.posX}, {u.ubicacionActual.posY})</FilaPopup>
+            <FilaPopup etiqueta="Velocidad · costo">
+              {u.velocidadPromedioKmH || d?.velocidad} km/h · S/ {u.costoPorKm || d?.costoKm}/km
+            </FilaPopup>
+          </>
+        ),
+      };
+    }
+    if (seleccion.tipo === 'almacen') {
+      const a = almacenes.find((x) => x.codigo === seleccion.codigo);
+      if (!a) return null;
+      const esNorte = /n[-\s]?o/i.test(a.nombre) || a.nombre.toLowerCase().includes('norte');
+      const color = a.tipo === 'CENTRAL' ? COLOR_ALMACEN.central : esNorte ? COLOR_ALMACEN.norte : COLOR_ALMACEN.este;
+      const ilimitado = a.tipo === 'CENTRAL' || a.stockActual === null || a.stockActual === undefined;
+      const capacidad = a.capacidadMaxima ?? 1000;
+      return {
+        color,
+        titulo: a.nombre,
+        insignia: <InsigniaPopup texto={a.tipo === 'CENTRAL' ? 'Central' : 'Intermedio'} clase="bg-gray-50 text-gray-700 border-gray-200" />,
+        cuerpo: ilimitado ? (
+          <FilaPopup etiqueta="Stock">∞ Ilimitado</FilaPopup>
+        ) : (
+          <>
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-gray-400">Stock</span>
+                <span className="font-semibold text-gray-800">{a.stockActual}/{capacidad}</span>
+              </div>
+              <BarraPopup valor={a.stockActual ?? 0} total={capacidad} color={color} />
+            </div>
+            <FilaPopup etiqueta="Recarga">Diaria, 23:59</FilaPopup>
+          </>
+        ),
+      };
+    }
+    // Pedido
+    const p = pedidos.find((x) => x.codigo === seleccion.codigo);
+    if (!p) return null;
+    const cri = CRITICIDAD[p.criticidad] ?? { texto: p.criticidad, clase: 'bg-gray-50 text-gray-700 border-gray-200' };
+    const asignado = rutas.find((r) => (r.codigosPedidos ?? []).includes(p.codigo))?.unidadCodigo;
+    const cantidad = campo(p, ['cantidad', 'cantidadPaquetes', 'cantidadProductos', 'numPaquetes']);
+    const limite = campo(p, ['fechaHoraLimite', 'fechaLimite', 'plazoLimite', 'horaLimite', 'fechaEntregaLimite']);
+    const cliente = campo(p, ['clienteNombre', 'cliente', 'idCliente', 'codigoCliente']);
+    return {
+      color: COLOR_CRITICIDAD[p.criticidad] ?? '#2563EB',
+      titulo: `Pedido ${p.codigo}`,
+      insignia: <InsigniaPopup texto={cri.texto} clase={cri.clase} />,
+      cuerpo: (
+        <>
+          <FilaPopup etiqueta="Estado">{ESTADO_PEDIDO[p.estado] ?? p.estado}</FilaPopup>
+          {cantidad !== undefined && <FilaPopup etiqueta="Cantidad">{String(cantidad)} paquetes</FilaPopup>}
+          {limite !== undefined && (
+            <FilaPopup etiqueta="Plazo límite">
+              {new Date(String(limite)).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+            </FilaPopup>
+          )}
+          {cliente !== undefined && <FilaPopup etiqueta="Cliente">{String(cliente)}</FilaPopup>}
+          <FilaPopup etiqueta="Destino">({p.destino.posX}, {p.destino.posY})</FilaPopup>
+          <FilaPopup etiqueta="Asignado a">{asignado ?? 'Sin asignar'}</FilaPopup>
+        </>
+      ),
+    };
+  })();
+
   return (
-    <div className="relative w-full h-full min-h-[480px] bg-[#f8fafc] rounded-xl border border-gray-200 overflow-hidden">
+    <div ref={contenedorRef} className="relative w-full h-full min-h-[480px] bg-[#f8fafc] rounded-xl border border-gray-200 overflow-hidden">
       <svg
         ref={svgRef}
         className={`w-full h-full bg-[#f8fafc] touch-none ${arrastrando ? 'cursor-grabbing' : 'cursor-grab'}`}
@@ -333,6 +653,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         onPointerMove={alMover}
         onPointerUp={alSoltar}
         onPointerLeave={alSoltar}
+        onClick={() => { if (!huboArrastre.current) setSeleccion(null); }}
       >
         {/* Sombra suave para que pines, vehículos y almacenes resalten sobre la cuadrícula */}
         <defs>
@@ -363,9 +684,16 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           ))}
         </g>
 
-        {/* Rutas planificadas: línea gris punteada */}
+        {/* Rutas planificadas: punteadas con el color de su vehículo (azul auto, morado moto, rosa bici).
+            La del vehículo seleccionado se ve más gruesa y las demás se atenúan. */}
         {rutas.map((r) => {
           if (r.puntos.length < 2) return null;
+          const unidadRuta = unidades.find((u) => u.codigo === r.unidadCodigo);
+          if (unidadRuta && !pasaFiltroUnidad(unidadRuta, filtros)) return null; // vehículo oculto con los filtros
+          const colorRuta = unidadRuta ? COLOR_TIPO[unidadRuta.tipoNombre] ?? '#6B7280' : '#6B7280';
+          const codigoSel = seleccion?.tipo === 'vehiculo' ? seleccion.codigo : null;
+          const esSel = codigoSel === r.unidadCodigo;
+          const hayOtraSel = !!codigoSel && !esSel;
           let d: string;
           if (r.esCamino) {
             // El backend ya entrega esquina por esquina esquivando bloqueos, por eso basta unirlas
@@ -390,8 +718,9 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               key={`ruta-${r.unidadCodigo}`}
               d={d}
               fill="none"
-              stroke="#6B7280"
-              strokeWidth="0.12"
+              stroke={colorRuta}
+              strokeOpacity={esSel ? 1 : hayOtraSel ? 0.25 : 0.6}
+              strokeWidth={esSel ? 0.22 : 0.13}
               strokeDasharray="0.45 0.3"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -432,8 +761,16 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           const py = toSvgY(p.destino.posY);
           const color = COLOR_CRITICIDAD[p.criticidad] ?? '#2563EB';
           return (
-            <g key={`pedido-${p.id}`} className="cursor-pointer">
+            <g
+              key={`pedido-${p.id}`}
+              data-sel={`pedido:${p.codigo}`}
+              className="cursor-pointer"
+              onClick={(e) => clicIcono(e, { tipo: 'pedido', codigo: p.codigo })}
+            >
               <title>{`Pedido ${p.codigo}`}</title>
+              {seleccion?.tipo === 'pedido' && seleccion.codigo === p.codigo && (
+                <circle cx={px} cy={py - TAMANO_ICONO * 0.6} r={TAMANO_ICONO * 0.75} fill="none" stroke="#60A5FA" strokeWidth="0.15" className="animate-pulse" />
+              )}
               <g transform={`translate(${px}, ${py}) scale(${ESCALA_PIN})`} filter="url(#sombraIcono)">
                 <PinPedido color={color} />
               </g>
@@ -449,14 +786,14 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                 paintOrder="stroke"
                 className="select-none"
               >
-                {p.codigo}
+                {vista.zoom >= 3 ? p.codigo : codigoCorto(p.codigo)}
               </text>
             </g>
           );
         })}
 
         {/* Almacenes: bodega con su letra */}
-        {almacenes.map((alm) => {
+        {almacenes.filter((alm) => pasaFiltroAlmacen(alm, filtros)).map((alm) => {
           const ax = toSvgX(alm.ubicacion.posX);
           const ay = toSvgY(alm.ubicacion.posY);
           const esNoroeste = /n[-\s]?o/i.test(alm.nombre) || alm.nombre.toLowerCase().includes('norte');
@@ -464,8 +801,17 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           const color = alm.tipo === 'CENTRAL' ? COLOR_ALMACEN.central : esNoroeste ? COLOR_ALMACEN.norte : COLOR_ALMACEN.este;
 
           return (
-            <g key={`alm-${alm.codigo}`} transform={`translate(${ax}, ${ay})`} className="cursor-default">
+            <g
+              key={`alm-${alm.codigo}`}
+              data-sel={`almacen:${alm.codigo}`}
+              transform={`translate(${ax}, ${ay})`}
+              className="cursor-pointer"
+              onClick={(e) => clicIcono(e, { tipo: 'almacen', codigo: alm.codigo })}
+            >
               <title>{alm.nombre}</title>
+              {seleccion?.tipo === 'almacen' && seleccion.codigo === alm.codigo && (
+                <circle r={TAMANO_ICONO * 1.05} fill="none" stroke="#60A5FA" strokeWidth="0.15" className="animate-pulse" />
+              )}
               <g transform={`scale(${ESCALA_BODEGA})`} filter="url(#sombraIcono)">
                 <Bodega color={color} letra={letra} />
               </g>
@@ -478,7 +824,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         {(() => {
           // Vehículos detenidos en el mismo punto se separan un poco en círculo para no taparse
           const grupos = new Map<string, UnidadTransporte[]>();
-          visibles.forEach((u) => {
+          visibles.filter((u) => pasaFiltroUnidad(u, filtros)).forEach((u) => {
             const k = `${u.ubicacionActual.posX},${u.ubicacionActual.posY}`;
             grupos.set(k, [...(grupos.get(k) ?? []), u]);
           });
@@ -496,7 +842,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               const uy = toSvgY(gy) + desp * Math.sin(a);
 
               const averiado = u.estadoOperativo === 'AVERIADO';
-              const isSelected = u.codigo === selectedUnidadCodigo;
+              const isSelected = seleccion?.tipo === 'vehiculo' && seleccion.codigo === u.codigo;
 
               // "En movimiento" si el backend lo marca en ruta, si tiene una ruta pendiente o si se movió
               const prev = memoriaMov.current.get(u.codigo);
@@ -525,7 +871,11 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                     if (el) nodoVehiculo.current.set(u.codigo, el);
                     else nodoVehiculo.current.delete(u.codigo);
                   }}
-                  onClick={() => onSelectUnidad(u.codigo)}
+                  data-sel={`vehiculo:${u.codigo}`}
+                  onClick={(e) => {
+                    onSelectUnidad(u.codigo);
+                    clicIcono(e, { tipo: 'vehiculo', codigo: u.codigo });
+                  }}
                   className="cursor-pointer"
                   transform={sobreRuta ? undefined : `translate(${ux} ${uy})`}
                 >
@@ -550,13 +900,20 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                     </g>
                   </g>
 
-                  {/* Averiado (cualquier tipo de vehículo): llave negra en un círculo amarillo, como señal de peligro (no gira) */}
-                  {averiado && (
-                    <g transform={`translate(${TAMANO_ICONO * 0.45}, ${-TAMANO_ICONO * 0.45})`}>
-                      <circle r="0.32" fill={COLOR_AVERIA} stroke="#111827" strokeWidth="0.07" />
-                      <Wrench width={0.38} height={0.38} x={-0.19} y={-0.19} stroke="#111827" strokeWidth={2.8} />
-                    </g>
-                  )}
+                  {/* Averiado: insignia con el color de riesgo y el número de su tipo (1 leve · 2 moderada · 3 grave). No gira. */}
+                  {averiado && (() => {
+                    const t = tipoAveriaDe(u);
+                    const info = AVERIA_TIPO[t];
+                    return (
+                      <g transform={`translate(${TAMANO_ICONO * 0.45}, ${-TAMANO_ICONO * 0.45})`}>
+                        {t === '3' && <circle r="0.55" fill="none" stroke={info.color} strokeWidth="0.08" className="animate-pulse" />}
+                        <circle r="0.36" fill={info.color} stroke="#111827" strokeWidth="0.07" />
+                        <text y="0.15" textAnchor="middle" fontSize="0.42" fontWeight="bold" fill={info.texto} className="select-none">
+                          {t}
+                        </text>
+                      </g>
+                    );
+                  })()}
 
                   {/* 3) Código del vehículo: se desplaza con él pero no gira, así siempre se lee derecho */}
                   <text
@@ -580,10 +937,46 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         })()}
       </svg>
 
+      {/* Popup de detalle: pequeño, junto al ícono y siguiéndolo */}
+      {contenidoPopup && (
+        <div
+          ref={popupRef}
+          role="dialog"
+          aria-label={contenidoPopup.titulo}
+          className="absolute left-0 top-0 z-20 w-56 rounded-xl border border-gray-200 bg-white shadow-lg text-xs"
+          style={{ visibility: 'hidden' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: contenidoPopup.color }} />
+            <span className="font-bold text-gray-900 truncate flex-1">{contenidoPopup.titulo}</span>
+            {contenidoPopup.insignia}
+            <button type="button" onClick={() => setSeleccion(null)} aria-label="Cerrar" className="text-gray-400 hover:text-gray-700 shrink-0">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="px-3 py-2.5 space-y-2">{contenidoPopup.cuerpo}</div>
+          <div className="px-3 pb-2 text-[10px] text-gray-400">Clic en el mapa vacío o Esc para quitar la selección</div>
+        </div>
+      )}
+
       {/* Rosa de los vientos (Norte), a la derecha para que siga visible al abrir el panel */}
       <div className="absolute top-3 right-4 flex flex-col items-center select-none pointer-events-none opacity-80">
         <span className="text-xs font-black text-gray-800 leading-none mb-0.5">N</span>
         <svg className="w-3 h-5 fill-gray-800" viewBox="0 0 24 36"><polygon points="12,0 20,20 12,14 4,20" /></svg>
+      </div>
+
+      {/* Controles de zoom: acercar, alejar y volver a la vista inicial */}
+      <div className="absolute top-12 right-3 z-10 flex flex-col rounded-lg border border-gray-300 bg-white/90 shadow-sm overflow-hidden">
+        <button type="button" onClick={() => zoomAnimado(vista.zoom * 1.5)} title="Acercar" className="p-1.5 hover:bg-white text-gray-700">
+          <Plus className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => zoomAnimado(vista.zoom / 1.5)} title="Alejar" className="p-1.5 hover:bg-white text-gray-700 border-t border-gray-200">
+          <Minus className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={vistaInicial} title="Vista inicial" className="p-1.5 hover:bg-white text-gray-700 border-t border-gray-200">
+          <Maximize2 className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Botón de leyenda: en la esquina inferior derecha, flotando sobre el mapa (no lo mueve) */}
@@ -603,8 +996,12 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
 
       {/* La leyenda se abre justo encima del botón */}
       {showLeyenda && (
-        <div className="absolute bottom-13 right-3 z-20">
-          <LeyendaMapa onClose={() => setShowLeyenda(false)} escenario={escenario} />
+        // Ocupa como máximo el alto del mapa (de arriba hasta el botón): si no entra, la leyenda hace scroll
+        // por dentro en vez de cortarse arriba. El espacio vacío deja pasar los clics al mapa.
+        <div className="absolute top-3 bottom-13 right-3 z-20 flex flex-col justify-end pointer-events-none">
+          <div className="pointer-events-auto min-h-0 flex">
+            <LeyendaMapa onClose={() => setShowLeyenda(false)} escenario={escenario} />
+          </div>
         </div>
       )}
     </div>
