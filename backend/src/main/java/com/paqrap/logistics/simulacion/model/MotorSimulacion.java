@@ -61,6 +61,10 @@ public class MotorSimulacion {
     private final com.paqrap.logistics.planificacion.repository.RutaRepository rutaRepository;
     private final ResultadoSimulacionRepository resultadoRepository;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    private final com.paqrap.logistics.flota.service.PlanMantenimientoService planMantenimiento;
+
+    /** Unidades puestas en EN_MANTENIMIENTO por el plan preventivo (para devolverlas a DISPONIBLE). */
+    private final java.util.Set<String> enMantenimientoPorPlan = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     @Getter
     private ParametrosSimulacion parametros;
@@ -151,19 +155,24 @@ public class MotorSimulacion {
         // En modo operación no se cargan los archivos de ejemplo de septiembre: los pedidos
         // entran por el módulo de Registro, como en la operación real de la empresa
         if (!esModoOperacion() && (parametros == null || pedidosProgramados.isEmpty())) {
-            // Auto-load default data files if no prior configuration
+            // Sin configuración previa: archivos oficiales del mes de inicio (y del siguiente si el
+            // horizonte de 5 días cruza de mes), en vez de septiembre fijo
             LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
+            LocalDateTime inicio = (fechaElegida != null) ? fechaElegida
+                    : java.time.LocalDate.now(java.time.ZoneId.of("America/Lima")).atStartOfDay();
+            java.time.YearMonth mesInicio = java.time.YearMonth.from(inicio);
             ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
-            // Resolve the 'datos' directory
-            java.io.File datosDir = new java.io.File("datos");
-            if (!datosDir.exists()) {
-                datosDir = new java.io.File("../datos");
-            }
-
-            defaultParams.setArchivoPedidos(new java.io.File(datosDir, "ventas.v20260909/ventas.202609.txt").getAbsolutePath());
-            defaultParams.setArchivoBloqueos(new java.io.File(datosDir, "bloqueos/bloqueo.2609.txt").getAbsolutePath());
+            defaultParams.setArchivoPedidos(DirectorioDatos.archivoVentas(mesInicio).orElse(null));
+            defaultParams.setArchivoBloqueos(DirectorioDatos.archivoBloqueos(mesInicio).orElse(null));
             defaultParams.setFechaHoraInicio(fechaElegida);
             configurar(defaultParams);
+            java.time.YearMonth mesFin = java.time.YearMonth.from(inicio.plusDays(5));
+            if (mesFin.isAfter(mesInicio)) {
+                pedidosProgramados = new ArrayList<>(pedidosProgramados);
+                bloqueosProgramados = new ArrayList<>(bloqueosProgramados);
+                DirectorioDatos.archivoVentas(mesFin).ifPresent(r -> pedidosProgramados.addAll(cargadorArchivos.cargarPedidos(r)));
+                DirectorioDatos.archivoBloqueos(mesFin).ifPresent(r -> bloqueosProgramados.addAll(cargadorArchivos.cargarBloqueos(r)));
+            }
             log.info("Auto-configurado con archivos por defecto: {} pedidos, {} bloqueos",
                     pedidosProgramados.size(), bloqueosProgramados.size());
         }
@@ -214,7 +223,9 @@ public class MotorSimulacion {
         this.instanteColapsoDetectado = null;
         this.volumenPedidosColapsoDetectado = null;
         this.ultimaHoraPlanificada = null;
-        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null) ? parametros.getFechaHoraInicio() : LocalDateTime.of(2026, 9, 1, 0, 0, 0);
+        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null)
+                ? parametros.getFechaHoraInicio()
+                : java.time.LocalDate.now(java.time.ZoneId.of("America/Lima")).atStartOfDay();
         double factorAceleracion;
         if (parametros != null && parametros.getFactorAceleracion() != null && parametros.getFactorAceleracion() > 0) {
             factorAceleracion = parametros.getFactorAceleracion();
@@ -280,6 +291,13 @@ public class MotorSimulacion {
             });
         } catch (Exception e) {
             log.error("Error procesando eventos en instante {}: {}", instanteActual, e.getMessage());
+        }
+
+        // --- Mantenimiento preventivo del día (FAQ 19) ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> aplicarMantenimiento(instanteActual));
+        } catch (Exception e) {
+            log.error("Error aplicando mantenimiento preventivo en instante {}: {}", instanteActual, e.getMessage());
         }
 
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
@@ -401,6 +419,29 @@ public class MotorSimulacion {
                 averiaRepository.save(a);
                 averiasOcurridas++;
                 planificador.replanificarPorAveria(a);
+            }
+        }
+    }
+
+    /**
+     * Mantenimiento preventivo (FAQ 19): la unidad no está disponible de 00:00 a 23:59 de su día.
+     * Solo se pasa a mantenimiento una unidad libre (el Planificador ya evita rutas que crucen las
+     * 00:00 de ese día). Al terminar el día, se devuelve a DISPONIBLE solo si fue el plan quien la
+     * puso en mantenimiento, para no pisar un cambio manual de un operario.
+     */
+    private void aplicarMantenimiento(LocalDateTime instante) {
+        if (planMantenimiento == null || instante == null) return;
+        for (UnidadTransporte u : unidadRepository.findAll()) {
+            boolean enPlan = planMantenimiento.estaEnMantenimiento(u.getCodigo(), instante);
+            if (enPlan && u.getEstadoOperativo() == EstadoOperativo.DISPONIBLE) {
+                u.setEstadoOperativo(EstadoOperativo.EN_MANTENIMIENTO);
+                unidadRepository.save(u);
+                enMantenimientoPorPlan.add(u.getCodigo());
+                log.info("Unidad {} en mantenimiento preventivo el {}", u.getCodigo(), instante.toLocalDate());
+            } else if (!enPlan && enMantenimientoPorPlan.remove(u.getCodigo())
+                    && u.getEstadoOperativo() == EstadoOperativo.EN_MANTENIMIENTO) {
+                u.setEstadoOperativo(EstadoOperativo.DISPONIBLE);
+                unidadRepository.save(u);
             }
         }
     }

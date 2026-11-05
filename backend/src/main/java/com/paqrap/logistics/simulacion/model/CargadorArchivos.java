@@ -2,6 +2,7 @@ package com.paqrap.logistics.simulacion.model;
 
 import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.TipoAveria;
+import com.paqrap.logistics.flota.service.PlanMantenimientoService;
 import com.paqrap.logistics.pedidos.model.Cliente;
 import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.Pedido;
@@ -209,6 +210,15 @@ public class CargadorArchivos {
         List<Averia> averias = new ArrayList<>();
         if (!validarFormato(rutaArchivo)) return averias;
 
+        // Año y mes desde el nombre del archivo (como en pedidos y bloqueos), no fijos en septiembre
+        int anio = 2026;
+        int mes = 9;
+        Matcher mAnioMes = Pattern.compile("\\.(\\d{4})(\\d{2})").matcher(new File(rutaArchivo).getName());
+        if (mAnioMes.find()) {
+            anio = Integer.parseInt(mAnioMes.group(1));
+            mes = Integer.parseInt(mAnioMes.group(2));
+        }
+
         try (BufferedReader br = new BufferedReader(new FileReader(rutaArchivo))) {
             String linea;
             int num = 0;
@@ -218,7 +228,7 @@ public class CargadorArchivos {
                 if (linea.isEmpty() || linea.startsWith("#")) continue;
                 String[] partes = linea.split(",");
                 if (partes.length >= 4) {
-                    LocalDateTime fecha = parsearFechaSimulada(partes[0].trim(), 2026, 9);
+                    LocalDateTime fecha = parsearFechaSimulada(partes[0].trim(), anio, mes);
                     int x = Integer.parseInt(partes[1].trim());
                     int y = Integer.parseInt(partes[2].trim());
                     int tipoNum = Integer.parseInt(partes[3].trim());
@@ -255,59 +265,16 @@ public class CargadorArchivos {
 
     /**
      * Parsea un archivo de mantenimiento preventivo (RF-42 / Pregunta 19 FAQ).
-     * Formato oficial: aaaammdd:TTNN (ej. 20260901:TA01)
-     * Retorna un mapa: Fecha -> Lista de códigos de vehículos en mantenimiento.
+     * Formato oficial: aaaammdd:TTNN (ej. 20260901:TA01). Toda unidad, sin importar su tipo,
+     * queda no disponible de 00:00 a 23:59 de ese día.
      */
     public List<com.paqrap.logistics.flota.model.Mantenimiento> cargarMantenimientosPreventivos(String rutaArchivo) {
-        List<com.paqrap.logistics.flota.model.Mantenimiento> mantList = new ArrayList<>();
         if (!validarFormato(rutaArchivo)) {
             log.warn("Archivo de mantenimiento preventivo no encontrado o inaccesible: {}", rutaArchivo);
-            return mantList;
+            return new ArrayList<>();
         }
-
-        try (BufferedReader br = new BufferedReader(new FileReader(rutaArchivo))) {
-            String linea;
-            int numLinea = 0;
-            while ((linea = br.readLine()) != null) {
-                linea = linea.trim();
-                numLinea++;
-                if (linea.isEmpty() || linea.startsWith("#")) continue;
-
-                String[] partes = linea.split(":");
-                if (partes.length == 2) {
-                    String fechaStr = partes[0].trim();
-                    String codigoVehiculo = partes[1].trim();
-                    if (fechaStr.length() == 8) {
-                        try {
-                            int anio = Integer.parseInt(fechaStr.substring(0, 4));
-                            int mes = Integer.parseInt(fechaStr.substring(4, 6));
-                            int dia = Integer.parseInt(fechaStr.substring(6, 8));
-                            java.time.LocalDate fecha = java.time.LocalDate.of(anio, mes, dia);
-                            LocalDateTime inicio = fecha.atStartOfDay();
-                            LocalDateTime fin;
-                            if (codigoVehiculo.startsWith("TB")) {
-                                fin = inicio.plusHours(8).minusSeconds(1);
-                            } else if (codigoVehiculo.startsWith("TA")) {
-                                fin = inicio.plusDays(2).minusSeconds(1);
-                            } else {
-                                fin = inicio.plusDays(1).minusSeconds(1);
-                            }
-                            com.paqrap.logistics.flota.model.Mantenimiento m = com.paqrap.logistics.flota.model.Mantenimiento.builder()
-                                .codigoVehiculo(codigoVehiculo)
-                                .fechaHoraInicio(inicio)
-                                .fechaHoraFin(fin)
-                                .build();
-                            mantList.add(m);
-                        } catch (Exception ex) {
-                            log.warn("Línea {}: Formato de fecha inválido '{}'", numLinea, fechaStr);
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("Error al leer archivo de mantenimiento preventivo: {}", e.getMessage());
-        }
-
+        List<com.paqrap.logistics.flota.model.Mantenimiento> mantList =
+                PlanMantenimientoService.parsearArchivo(new File(rutaArchivo).toPath());
         log.info("Cargados {} registros de mantenimiento desde {}", mantList.size(), rutaArchivo);
         return mantList;
     }

@@ -9,6 +9,7 @@ import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.Turno;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
+import com.paqrap.logistics.flota.service.PlanMantenimientoService;
 import com.paqrap.logistics.pedidos.model.Cliente;
 import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.Pedido;
@@ -29,17 +30,21 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.File;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -96,6 +101,17 @@ public class SimulacionSession {
     private LocalDateTime instanteColapsoDetectado;
     private Integer volumenPedidosColapsoDetectado;
 
+    private static final ZoneId ZONA_LIMA = ZoneId.of("America/Lima");
+
+    // Carga de datos por mes y mantenimiento preventivo
+    private CargadorArchivos cargador;
+    private PlanMantenimientoService planMantenimiento;
+    /** true = pedidos y bloqueos salen de los archivos oficiales del mes simulado. */
+    private boolean datosPorFecha;
+    private YearMonth ultimoMesCargado;
+    /** Unidades que esta sesión pasó a EN_MANTENIMIENTO por el plan (para devolverlas a DISPONIBLE). */
+    private final Set<String> enMantenimientoPorPlan = ConcurrentHashMap.newKeySet();
+
     public SimulacionSession(String sessionId) {
         this.sessionId = (sessionId != null && !sessionId.trim().isEmpty()) ? sessionId.trim() : UUID.randomUUID().toString();
         this.reloj = new RelojSimulado();
@@ -128,6 +144,7 @@ public class SimulacionSession {
 
     public void inicializarFlota(UnidadTransporteRepository unidadRepo) {
         unidades.clear();
+        enMantenimientoPorPlan.clear();
         List<UnidadTransporte> base = unidadRepo.findAll();
         for (UnidadTransporte u : base) {
             UnidadTransporte copia = UnidadTransporte.builder()
@@ -180,22 +197,28 @@ public class SimulacionSession {
             AlmacenRepository almacenRepo,
             CargadorArchivos cargador,
             UnidadTransporteRepository unidadRepo,
-            ResultadoSimulacionRepository resultadoRepo) {
+            ResultadoSimulacionRepository resultadoRepo,
+            PlanMantenimientoService planMantenimiento) {
 
         actualizarAcceso();
+        this.cargador = cargador;
+        this.planMantenimiento = planMantenimiento;
 
-        // Carga por defecto si no fue configurada previamente
-        if (parametros == null || pedidosProgramados.isEmpty()) {
-            LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
-            ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
-            File datosDir = new File("datos");
-            if (!datosDir.exists()) {
-                datosDir = new File("../datos");
-            }
-            defaultParams.setArchivoPedidos(new File(datosDir, "ventas.v20260909/ventas.202609.txt").getAbsolutePath());
-            defaultParams.setArchivoBloqueos(new File(datosDir, "bloqueos/bloqueo.2609.txt").getAbsolutePath());
-            defaultParams.setFechaHoraInicio(fechaElegida);
-            configurar(defaultParams, cargador);
+        LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
+        LocalDateTime inicioSim = (fechaElegida != null)
+                ? fechaElegida : LocalDate.now(ZONA_LIMA).atStartOfDay();
+
+        // Sin archivo explícito, los pedidos y bloqueos salen de los archivos oficiales del mes de
+        // inicio; los meses siguientes se cargan cuando el reloj llega a ellos (ver procesarEventos).
+        datosPorFecha = (parametros == null || parametros.getArchivoPedidos() == null);
+        if (datosPorFecha) {
+            pedidosProgramados.clear();
+            bloqueosProgramados.clear();
+            ultimoMesCargado = null;
+            cargarDatosHasta(YearMonth.from(inicioSim));
+        } else {
+            // Se relee el archivo en cada corrida: la anterior consumió los pedidos programados
+            configurar(parametros, cargador);
         }
 
         if (executorService != null && !executorService.isShutdown()) {
@@ -213,9 +236,6 @@ public class SimulacionSession {
         rutas.clear();
 
         inicializarFlota(unidadRepo);
-
-        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null)
-                ? parametros.getFechaHoraInicio() : LocalDateTime.of(2026, 9, 1, 0, 0, 0);
 
         double factorAceleracion;
         if (parametros != null && parametros.getFactorAceleracion() != null && parametros.getFactorAceleracion() > 0) {
@@ -273,8 +293,9 @@ public class SimulacionSession {
         reloj.avanzar(avanceTiempoReal);
         LocalDateTime instanteActual = reloj.getInstanteActual();
 
-        // 1. Procesar eventos (nuevos pedidos, bloqueos)
+        // 1. Procesar eventos (nuevos pedidos, bloqueos) y mantenimiento preventivo del día (FAQ 19)
         procesarEventos(instanteActual);
+        aplicarMantenimiento(instanteActual);
 
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
@@ -321,8 +342,50 @@ public class SimulacionSession {
         }
     }
 
+    /**
+     * Carga los archivos oficiales de ventas y bloqueos de cada mes pendiente hasta {@code objetivo}
+     * (inclusive). Un 5D que cruza de mes o un colapso largo siguen recibiendo pedidos.
+     */
+    void cargarDatosHasta(YearMonth objetivo) {
+        if (cargador == null || objetivo == null) return;
+        YearMonth mes = (ultimoMesCargado == null) ? objetivo : ultimoMesCargado.plusMonths(1);
+        while (!mes.isAfter(objetivo)) {
+            final YearMonth mesActual = mes;
+            DirectorioDatos.archivoVentas(mesActual).ifPresentOrElse(
+                    ruta -> pedidosProgramados.addAll(cargador.cargarPedidos(ruta)),
+                    () -> log.warn("Sesión {}: no hay archivo de ventas para {}", sessionId, mesActual));
+            DirectorioDatos.archivoBloqueos(mesActual).ifPresent(
+                    ruta -> bloqueosProgramados.addAll(cargador.cargarBloqueos(ruta)));
+            ultimoMesCargado = mesActual;
+            mes = mes.plusMonths(1);
+        }
+    }
+
+    /**
+     * Mantenimiento preventivo (FAQ 19): la unidad no está disponible de 00:00 a 23:59 de su día.
+     * Solo se pasa a mantenimiento una unidad libre; la planificación ya evita que una unidad siga
+     * en ruta a las 00:00 de ese día (Planificador#construirSolucionRespetandoMantenimiento).
+     */
+    private void aplicarMantenimiento(LocalDateTime instante) {
+        if (planMantenimiento == null || instante == null) return;
+        for (UnidadTransporte u : unidades) {
+            boolean enPlan = planMantenimiento.estaEnMantenimiento(u.getCodigo(), instante);
+            if (enPlan && u.getEstadoOperativo() == EstadoOperativo.DISPONIBLE) {
+                u.setEstadoOperativo(EstadoOperativo.EN_MANTENIMIENTO);
+                enMantenimientoPorPlan.add(u.getCodigo());
+            } else if (!enPlan && enMantenimientoPorPlan.remove(u.getCodigo())
+                    && u.getEstadoOperativo() == EstadoOperativo.EN_MANTENIMIENTO) {
+                u.setEstadoOperativo(EstadoOperativo.DISPONIBLE);
+            }
+        }
+    }
+
     private void procesarEventos(LocalDateTime instante) {
         if (instante == null) return;
+
+        if (datosPorFecha) {
+            cargarDatosHasta(YearMonth.from(instante));
+        }
 
         // Ingreso de nuevos pedidos
         List<Pedido> entrantes = new ArrayList<>();
@@ -465,7 +528,7 @@ public class SimulacionSession {
                 .collect(Collectors.toList());
         if (disponibles.isEmpty()) return;
 
-        List<Ruta> nuevasRutas = planificador.getAlgoritmoRuteo().construirSolucion(ordenados, disponibles, redVial);
+        List<Ruta> nuevasRutas = planificador.construirSolucionRespetandoMantenimiento(ordenados, disponibles, instante);
 
         for (Ruta ruta : nuevasRutas) {
             if (ruta.getId() == null) {

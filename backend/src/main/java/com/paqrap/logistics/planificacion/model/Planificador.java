@@ -7,6 +7,7 @@ import com.paqrap.logistics.flota.model.Averia;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
 import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
+import com.paqrap.logistics.flota.service.PlanMantenimientoService;
 import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.Pedido;
 import com.paqrap.logistics.pedidos.repository.PedidoRepository;
@@ -18,6 +19,7 @@ import com.paqrap.logistics.redvial.model.Ubicacion;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +27,10 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +55,14 @@ public class Planificador {
     private final UnidadTransporteRepository unidadRepository;
     private final AlmacenRepository almacenRepository;
     private final RutaRepository rutaRepository;
+
+    /** Opcional (por setter) para no romper a quienes construyen el Planificador a mano. */
+    private PlanMantenimientoService planMantenimiento;
+
+    @Autowired(required = false)
+    public void setPlanMantenimiento(PlanMantenimientoService planMantenimiento) {
+        this.planMantenimiento = planMantenimiento;
+    }
 
     public Planificador(@Qualifier("algoritmoACO") AlgoritmoRuteo algoritmoRuteo,
                         RedVial redVial,
@@ -95,8 +108,8 @@ public class Planificador {
             return new ArrayList<>();
         }
 
-        // Construir solución usando el algoritmo configurado (Strategy pattern)
-        List<Ruta> rutasGeneradas = algoritmoRuteo.construirSolucion(pedidosOrdenados, flotaDisponible, redVial);
+        // Construir solución usando el algoritmo configurado, sin unidades en mantenimiento (FAQ 19)
+        List<Ruta> rutasGeneradas = construirSolucionRespetandoMantenimiento(pedidosOrdenados, flotaDisponible, instante);
 
         List<Ruta> rutasConfirmadas = new ArrayList<>();
         for (Ruta ruta : rutasGeneradas) {
@@ -142,6 +155,86 @@ public class Planificador {
 
         log.info("Ciclo de planificación completado: {} rutas confirmadas.", rutasConfirmadas.size());
         return rutasConfirmadas;
+    }
+
+    /**
+     * Ejecuta el algoritmo de ruteo respetando el plan de mantenimiento preventivo (FAQ 19):
+     * <ol>
+     *   <li>No se planifican unidades que están en su día de mantenimiento.</li>
+     *   <li>Se rechaza toda ruta que dejaría a su unidad en ruta cuando empieza su mantenimiento
+     *       (a las 00:00); sus pedidos se reasignan una vez entre las unidades que quedaron libres.
+     *       Los que no se puedan asignar quedan pendientes para el siguiente ciclo.</li>
+     * </ol>
+     * Sin plan de mantenimiento configurado se comporta igual que el algoritmo directo.
+     */
+    public List<Ruta> construirSolucionRespetandoMantenimiento(List<Pedido> pedidosOrdenados,
+                                                               List<UnidadTransporte> flota,
+                                                               LocalDateTime instante) {
+        if (planMantenimiento == null || instante == null) {
+            return algoritmoRuteo.construirSolucion(pedidosOrdenados, flota, redVial);
+        }
+        List<UnidadTransporte> candidatos = flota.stream()
+                .filter(u -> !planMantenimiento.estaEnMantenimiento(u.getCodigo(), instante))
+                .collect(Collectors.toList());
+        List<Ruta> rutas = algoritmoRuteo.construirSolucion(pedidosOrdenados, candidatos, redVial);
+
+        List<Ruta> validas = new ArrayList<>();
+        List<Pedido> sinAsignar = new ArrayList<>();
+        Set<String> usadas = new HashSet<>();
+        Set<String> excluidas = new HashSet<>();
+        LocalDateTime base = inicioDeSolucion(rutas);
+        for (Ruta r : rutas) {
+            String codigo = r.getUnidadTransporte() != null ? r.getUnidadTransporte().getCodigo() : null;
+            if (cruzaMantenimiento(r, base, instante)) {
+                excluidas.add(codigo);
+                r.getParadas().stream().map(ParadaRuta::getPedido).filter(Objects::nonNull).forEach(sinAsignar::add);
+            } else {
+                validas.add(r);
+                usadas.add(codigo);
+            }
+        }
+        if (sinAsignar.isEmpty()) {
+            return validas;
+        }
+        log.info("{} rutas rechazadas porque su unidad entra a mantenimiento antes de terminarlas ({}). Reasignando {} pedidos.",
+                excluidas.size(), excluidas, sinAsignar.size());
+
+        List<UnidadTransporte> restantes = candidatos.stream()
+                .filter(u -> !usadas.contains(u.getCodigo()) && !excluidas.contains(u.getCodigo()))
+                .collect(Collectors.toList());
+        if (!restantes.isEmpty()) {
+            List<Ruta> reintento = algoritmoRuteo.construirSolucion(ordenarPorHolgura(sinAsignar, instante), restantes, redVial);
+            LocalDateTime baseReintento = inicioDeSolucion(reintento);
+            reintento.stream().filter(r -> !cruzaMantenimiento(r, baseReintento, instante)).forEach(validas::add);
+        }
+        return validas;
+    }
+
+    /**
+     * true si la unidad de la ruta empieza un mantenimiento antes de terminar la ruta.
+     * El algoritmo fecha sus rutas con su propio reloj, así que la hora de fin se calcula relativa
+     * al inicio de la solución ({@code base}) y se traslada al instante de planificación.
+     */
+    boolean cruzaMantenimiento(Ruta ruta, LocalDateTime base, LocalDateTime instante) {
+        if (planMantenimiento == null || ruta.getUnidadTransporte() == null || base == null) return false;
+        LocalDateTime finRuta = ruta.getParadas().stream()
+                .filter(p -> p.getHoraEstimadaLlegada() != null)
+                .map(p -> p.getHoraEstimadaLlegada().plusMinutes(p.getTiempoServicioMin()))
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+        if (finRuta == null) return false;
+        LocalDateTime finEstimado = instante.plus(Duration.between(base, finRuta));
+        return planMantenimiento
+                .mantenimientoQueIniciaEntre(ruta.getUnidadTransporte().getCodigo(), instante, finEstimado)
+                .isPresent();
+    }
+
+    private static LocalDateTime inicioDeSolucion(List<Ruta> rutas) {
+        return rutas.stream()
+                .map(Ruta::getFechaHoraGeneracion)
+                .filter(Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
     }
 
     /**
