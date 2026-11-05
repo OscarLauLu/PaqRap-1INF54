@@ -37,7 +37,7 @@ const Seccion: React.FC<{ titulo: string; abiertaInicial?: boolean; children: Re
 const contar = (lista: UnidadTransporte[]) => ({
   disponible: lista.filter((u) => u.estadoOperativo === 'DISPONIBLE').length,
   enRuta: lista.filter((u) => u.estadoOperativo === 'EN_RUTA').length,
-  averiada: lista.filter((u) => u.estadoOperativo === 'AVERIADO' || u.estadoOperativo === 'EN_MANTENIMIENTO').length,
+  averiada: lista.filter((u) => u.estadoOperativo === 'AVERIADA' || u.estadoOperativo === 'EN_MANTENIMIENTO').length,
   total: lista.length,
 });
 

@@ -103,7 +103,7 @@ export const App: React.FC = () => {
   const rutasMapa: RutaMapa[] = Array.from(rutaVigentePorUnidad.values())
     .map((r): RutaMapa | null => {
       const unidad = unidades.find((u) => u.codigo === r.unidadCodigo);
-      if (unidad?.estadoOperativo === 'AVERIADO') return null;
+      if (unidad?.estadoOperativo === 'AVERIADA') return null;
 
       const paradas = [...(r.paradas || [])].filter((p) => p.destino).sort((a, b) => a.orden - b.orden);
       const paradasPendientes = paradas.filter((p) => !p.entregada);

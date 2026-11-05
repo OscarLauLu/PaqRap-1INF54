@@ -25,4 +25,6 @@ public class UnidadTransporteDTO {
     private Ubicacion ubicacionActual;
     private String nombreConductor;
     private boolean activo;
+    /** Tipo de la avería activa ("TIPO_1", "TIPO_2" o "TIPO_3"); null si la unidad no está averiada */
+    private String tipoAveria;
 }

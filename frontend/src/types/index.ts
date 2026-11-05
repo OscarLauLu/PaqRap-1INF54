@@ -17,7 +17,7 @@ export interface Almacen {
 }
 
 export type TipoVehiculo = 'Auto' | 'Moto' | 'Bicicleta' | string;
-export type EstadoOperativo = 'DISPONIBLE' | 'EN_RUTA' | 'EN_MANTENIMIENTO' | 'AVERIADO';
+export type EstadoOperativo = 'DISPONIBLE' | 'EN_RUTA' | 'EN_MANTENIMIENTO' | 'AVERIADA';
 
 // Coincide con UnidadTransporteDTO.java: la clave es `codigo` (String); el DTO no expone
 // `turno` ni `pedidoAsignado` (eso vive en asignacion_turno / Ruta, se agrega en otro punto).

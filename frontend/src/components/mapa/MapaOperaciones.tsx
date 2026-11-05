@@ -5,6 +5,7 @@ import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
 import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
 import { parsearFechaLocal } from '../../utils/fechaLocal';
+import { averiasApi } from '../../api/averiasApi';
 import { crearHorario, distanciaEn, sinAlimentacion, type Horario, type HorarioRuta } from './movimiento';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
@@ -83,9 +84,9 @@ const COLOR_ALMACEN = { central: '#EA580C', norte: '#0891B2', este: '#4F46E5' };
 // Avería por tipo (enunciado). Escala de riesgo: amarillo (bajo) → naranja (medio) → rojo oscuro (alto),
 // más el número del tipo, para distinguirlas sin depender solo del color
 const AVERIA_TIPO: Record<string, { color: string; texto: string; nombre: string; detalle: string; riesgo: string }> = {
-  '1': { color: '#FDE047', texto: '#713F12', nombre: 'Tipo 1 · leve', detalle: '2 h en el lugar', riesgo: 'Riesgo bajo' },
-  '2': { color: '#F97316', texto: '#FFFFFF', nombre: 'Tipo 2 · moderada', detalle: 'hasta el cambio de turno', riesgo: 'Riesgo medio' },
-  '3': { color: '#B91C1C', texto: '#FFFFFF', nombre: 'Tipo 3 · grave', detalle: '2 días o más en taller', riesgo: 'Riesgo alto' },
+  '1': { color: '#FDE047', texto: '#713F12', nombre: 'Tipo 1 · leve', detalle: '2 h en el lugar y sigue su ruta', riesgo: 'Riesgo bajo' },
+  '2': { color: '#F97316', texto: '#FFFFFF', nombre: 'Tipo 2 · moderada', detalle: '4 h en el lugar; vuelve al final del turno siguiente', riesgo: 'Riesgo medio' },
+  '3': { color: '#B91C1C', texto: '#FFFFFF', nombre: 'Tipo 3 · grave', detalle: '4 h en el lugar; 2 días o más en taller', riesgo: 'Riesgo alto' },
 };
 /** Normaliza "TIPO_2", "2", "tipo 2"… a "1" | "2" | "3" (o null si no se sabe) */
 const numeroTipoAveria = (valor: unknown): string | null => {
@@ -199,7 +200,7 @@ const DATOS_TIPO: Record<string, { velocidad: number; costoKm: number; capacidad
 const ESTADO_UNIDAD: Record<string, { texto: string; clase: string }> = {
   DISPONIBLE: { texto: 'Disponible', clase: 'bg-green-50 text-green-700 border-green-200' },
   EN_RUTA: { texto: 'En ruta', clase: 'bg-blue-50 text-blue-700 border-blue-200' },
-  AVERIADO: { texto: 'Averiado', clase: 'bg-red-50 text-red-700 border-red-200' },
+  AVERIADA: { texto: 'Averiado', clase: 'bg-red-50 text-red-700 border-red-200' },
   EN_MANTENIMIENTO: { texto: 'Mantenimiento', clase: 'bg-amber-50 text-amber-700 border-amber-200' },
 };
 const CRITICIDAD: Record<string, { texto: string; clase: string }> = {
@@ -486,7 +487,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   trazadosRef.current = trazados;
   const averiadosRef = useRef(new Set<string>());
   averiadosRef.current = new Set(
-    (Array.isArray(unidades) ? unidades : []).filter((u) => u.estadoOperativo === 'AVERIADO').map((u) => u.codigo),
+    (Array.isArray(unidades) ? unidades : []).filter((u) => u.estadoOperativo === 'AVERIADA').map((u) => u.codigo),
   );
 
   /** Ubica cada vehículo con horario en su posición para la hora simulada actual */
@@ -531,7 +532,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     const ahora = performance.now();
     (Array.isArray(unidades) ? unidades : []).forEach((u) => {
       const t = trazados.get(u.codigo);
-      if (!t || u.estadoOperativo === 'AVERIADO') {
+      if (!t || u.estadoOperativo === 'AVERIADA') {
         animaciones.current.delete(u.codigo);
         recorrido.current.delete(u.codigo);
         ultimaPosBackend.current.delete(u.codigo);
@@ -599,7 +600,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     if (
       rutaDe.has(u.codigo) ||
       u.estadoOperativo === 'EN_RUTA' ||
-      u.estadoOperativo === 'AVERIADO' ||
+      u.estadoOperativo === 'AVERIADA' ||
       ahoraMs - t < VENTANA_MOVIMIENTO_MS ||
       u.codigo === selectedUnidadCodigo
     ) {
@@ -658,6 +659,34 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     return () => cancelAnimationFrame(cuadroPopup);
   }, [seleccion]);
 
+  // ---- Registrar una avería desde el mapa (FAQ 3: las averías se registran en el visualizador) ----
+  const [registrandoAveria, setRegistrandoAveria] = useState(false);
+  const [avisoAveria, setAvisoAveria] = useState<{ codigo: string; texto: string; error: boolean } | null>(null);
+
+  /** Esquina en la que el operario ve al vehículo: ahí queda detenido por la avería */
+  const posicionDibujada = (u: UnidadTransporte): Ubicacion => {
+    const tr = trazados.get(u.codigo);
+    const rec = recorrido.current.get(u.codigo);
+    if (tr && rec && rec.clave === tr.clave) {
+      const { x, y } = puntoEn(tr, rec.s);
+      return { posX: Math.round(x), posY: Math.round(y) };
+    }
+    return u.ubicacionActual;
+  };
+
+  const registrarAveria = async (u: UnidadTransporte, n: '1' | '2' | '3') => {
+    setRegistrandoAveria(true);
+    try {
+      await averiasApi.registrar({ idUnidad: u.codigo, tipo: `TIPO_${n}`, ubicacion: posicionDibujada(u) });
+      setAvisoAveria({ codigo: u.codigo, texto: `Avería tipo ${n} registrada. ${AVERIA_TIPO[n].detalle}.`, error: false });
+    } catch (err: unknown) {
+      const resp = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setAvisoAveria({ codigo: u.codigo, texto: resp ?? 'No se pudo registrar la avería.', error: true });
+    } finally {
+      setRegistrandoAveria(false);
+    }
+  };
+
   // ---- Contenido del popup según lo seleccionado ----
   const contenidoPopup = (() => {
     if (!seleccion) return null;
@@ -684,7 +713,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
             <FilaPopup etiqueta="Pendientes">
               {pendientes.length > 0 ? `${pendientes.length} · sigue ${pendientes[0]}` : 'Sin ruta asignada'}
             </FilaPopup>
-            {u.estadoOperativo === 'AVERIADO' && (() => {
+            {u.estadoOperativo === 'AVERIADA' && (() => {
               const info = AVERIA_TIPO[tipoAveriaDe(u)];
               return (
                 <FilaPopup etiqueta="Avería">
@@ -696,6 +725,31 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               );
             })()}
             <FilaPopup etiqueta="Ubicación">({u.ubicacionActual.posX}, {u.ubicacionActual.posY})</FilaPopup>
+            {u.estadoOperativo !== 'AVERIADA' && u.estadoOperativo !== 'EN_MANTENIMIENTO' && (
+              <div className="pt-1">
+                <div className="text-gray-400 mb-1">Registrar avería</div>
+                <div className="flex gap-1.5">
+                  {(['1', '2', '3'] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={registrandoAveria}
+                      title={`${AVERIA_TIPO[n].nombre}: ${AVERIA_TIPO[n].detalle}`}
+                      onClick={(e) => { e.stopPropagation(); void registrarAveria(u, n); }}
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-md border border-gray-200 px-2 py-1 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <svg viewBox="-0.6 -0.6 1.2 1.05" className="w-3.5 h-3.5" aria-hidden="true">
+                        <polygon points="0,-0.55 0.5,0.36 -0.5,0.36" fill={AVERIA_TIPO[n].color} stroke="#111827" strokeWidth="0.07" />
+                      </svg>
+                      Tipo {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {avisoAveria?.codigo === u.codigo && (
+              <p className={`text-[11px] ${avisoAveria.error ? 'text-red-600' : 'text-green-700'}`}>{avisoAveria.texto}</p>
+            )}
             <FilaPopup etiqueta="Velocidad · costo">
               {u.velocidadPromedioKmH || d?.velocidad} km/h · S/ {u.costoPorKm || d?.costoKm}/km
             </FilaPopup>
@@ -958,7 +1012,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               const ux = toSvgX(gx) + desp * Math.cos(a);
               const uy = toSvgY(gy) + desp * Math.sin(a);
 
-              const averiado = u.estadoOperativo === 'AVERIADO';
+              const averiado = u.estadoOperativo === 'AVERIADA';
               const isSelected = seleccion?.tipo === 'vehiculo' && seleccion.codigo === u.codigo;
 
               // "En movimiento" si el backend lo marca en ruta, si tiene una ruta pendiente o si se movió
@@ -1017,15 +1071,17 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                     </g>
                   </g>
 
-                  {/* Averiado: insignia con el color de riesgo y el número de su tipo (1 leve · 2 moderada · 3 grave). No gira. */}
+                  {/* Averiado: triángulo de advertencia con el color de riesgo y el número de su tipo
+                      (1 leve · 2 moderada · 3 grave). Late para llamar la atención. No gira. */}
                   {averiado && (() => {
                     const t = tipoAveriaDe(u);
                     const info = AVERIA_TIPO[t];
                     return (
-                      <g transform={`translate(${TAMANO_ICONO * 0.45}, ${-TAMANO_ICONO * 0.45})`}>
-                        {t === '3' && <circle r="0.55" fill="none" stroke={info.color} strokeWidth="0.08" className="animate-pulse" />}
-                        <circle r="0.36" fill={info.color} stroke="#111827" strokeWidth="0.07" />
-                        <text y="0.15" textAnchor="middle" fontSize="0.42" fontWeight="bold" fill={info.texto} className="select-none">
+                      <g transform={`translate(${TAMANO_ICONO * 0.5}, ${-TAMANO_ICONO * 0.55})`}>
+                        <title>{`Avería ${info.nombre}: ${info.detalle}`}</title>
+                        <polygon points="0,-0.78 0.72,0.5 -0.72,0.5" fill="none" stroke={info.color} strokeWidth="0.12" className="animate-pulse" />
+                        <polygon points="0,-0.55 0.5,0.36 -0.5,0.36" fill={info.color} stroke="#111827" strokeWidth="0.07" strokeLinejoin="round" />
+                        <text y="0.27" textAnchor="middle" fontSize="0.42" fontWeight="bold" fill={info.texto} className="select-none">
                           {t}
                         </text>
                       </g>

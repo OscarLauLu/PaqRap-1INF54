@@ -4,7 +4,11 @@ import com.paqrap.logistics.almacen.model.Almacen;
 import com.paqrap.logistics.almacen.model.AlmacenIntermedio;
 import com.paqrap.logistics.almacen.repository.AlmacenRepository;
 import com.paqrap.logistics.flota.dto.UnidadTransporteDTO;
+import com.paqrap.logistics.almacen.model.AlmacenCentral;
+import com.paqrap.logistics.common.exception.BusinessException;
+import com.paqrap.logistics.common.exception.ResourceNotFoundException;
 import com.paqrap.logistics.flota.model.Averia;
+import com.paqrap.logistics.flota.model.TipoAveria;
 import com.paqrap.logistics.flota.model.EstadoOperativo;
 import com.paqrap.logistics.flota.model.Turno;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
@@ -284,7 +288,7 @@ public class SimulacionSession {
         return inicial;
     }
 
-    public void avanzarPasoSimulado(
+    public synchronized void avanzarPasoSimulado(
             Duration avanceTiempoReal,
             Planificador planificador,
             RedVial redVial,
@@ -299,11 +303,13 @@ public class SimulacionSession {
         // 1. Procesar eventos (nuevos pedidos, bloqueos) y mantenimiento preventivo del día (FAQ 19)
         procesarEventos(instanteActual);
         aplicarMantenimiento(instanteActual);
+        List<Almacen> almacenes = almacenRepo.findAll();
+        atenderAverias(instanteActual, almacenes);
 
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
         // 2. Movimientos de flota y entregas
-        ejecutarMovimientosFlota(instanteActual, almacenRepo.findAll());
+        ejecutarMovimientosFlota(instanteActual, almacenes);
 
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
@@ -399,6 +405,60 @@ public class SimulacionSession {
         }
     }
 
+    /**
+     * Registra una avería en esta sesión (FAQ 3: las averías se registran en el visualizador). La unidad
+     * queda inmóvil en {@code ubicacion} (la posición en la que el operario la ve en el mapa).
+     */
+    public synchronized Averia registrarAveria(String codigoUnidad, TipoAveria tipo, Ubicacion ubicacion) {
+        UnidadTransporte u = unidades.stream()
+                .filter(x -> x.getCodigo().equals(codigoUnidad))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("UnidadTransporte", "codigo", codigoUnidad));
+        if (u.getEstadoOperativo() == EstadoOperativo.AVERIADA) {
+            throw new BusinessException("La unidad " + codigoUnidad + " ya está averiada.");
+        }
+        Averia a = Averia.builder()
+                .codigo("AVE-" + codigoUnidad + "-" + (averiasOcurridas + 1))
+                .tipo(tipo)
+                .fechaHoraEvento(reloj.getInstanteActual())
+                .ubicacionFalla(ubicacion != null ? ubicacion : u.getUbicacionActual())
+                .origenManual(true)
+                .build();
+        AtencionAverias.iniciar(a, u);
+        averiasActivas.add(a);
+        averiasOcurridas++;
+        log.info("Sesión {}: avería {} de {} en {} (reincorpora {})", sessionId, tipo, codigoUnidad,
+                a.getUbicacionFalla(), a.getHoraReincorporacion());
+        return a;
+    }
+
+    /** Avanza las averías activas: traslado al central (tipo 2 y 3) y reincorporación. */
+    private void atenderAverias(LocalDateTime instante, List<Almacen> almacenes) {
+        if (averiasActivas.isEmpty()) return;
+        Ubicacion central = almacenes.stream()
+                .filter(a -> a instanceof AlmacenCentral && a.getUbicacion() != null)
+                .map(Almacen::getUbicacion)
+                .findFirst()
+                .orElse(new Ubicacion(27, 14));
+        Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutas);
+        for (Averia a : averiasActivas) {
+            UnidadTransporte u = a.getUnidad();
+            if (u == null) continue;
+            AtencionAverias.avanzar(a, u, enCurso.get(u.getCodigo()), instante, central, null);
+        }
+        averiasActivas.removeIf(Averia::isResuelta);
+    }
+
+    /** "TIPO_1", "TIPO_2" o "TIPO_3" si la unidad tiene una avería activa; null si no. */
+    private String tipoAveriaActiva(String codigoUnidad) {
+        for (Averia a : averiasActivas) {
+            if (!a.isResuelta() && a.getUnidad() != null && codigoUnidad.equals(a.getUnidad().getCodigo())) {
+                return a.getTipo() != null ? a.getTipo().name() : null;
+            }
+        }
+        return null;
+    }
+
     private void procesarEventos(LocalDateTime instante) {
         if (instante == null) return;
 
@@ -449,6 +509,8 @@ public class SimulacionSession {
         List<Ruta> copiaRutas = new ArrayList<>(this.rutas);
         for (Ruta r : copiaRutas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
+            // Una unidad averiada se queda inmóvil donde ocurrió la falla (FAQ 3)
+            if (r.getUnidadTransporte().getEstadoOperativo() == EstadoOperativo.AVERIADA) continue;
 
             if (Turno.esHoraAlimentacion(instante.toLocalTime())) {
                 continue;
@@ -767,6 +829,7 @@ public class SimulacionSession {
             datos.put("ubicacion", u.getUbicacionActual());
             datos.put("cargaActual", u.getCargaActual());
             datos.put("capacidadMaxima", u.getTipo() != null ? u.getTipo().getCapacidadMaxima() : 0);
+            datos.put("tipoAveria", tipoAveriaActiva(u.getCodigo()));
             return datos;
         }).collect(Collectors.toList());
     }
@@ -808,6 +871,7 @@ public class SimulacionSession {
                             .ubicacionActual(u.getUbicacionActual())
                             .nombreConductor("Conductor " + u.getCodigo())
                             .activo(u.isActivo())
+                            .tipoAveria(tipoAveriaActiva(u.getCodigo()))
                             .build();
                 })
                 .collect(Collectors.toList());

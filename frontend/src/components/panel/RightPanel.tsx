@@ -197,7 +197,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
       setAvisoAveria({ ok: false, texto: `No existe una unidad activa con el código ${codigo}.` });
       return;
     }
-    if (unidad.estadoOperativo === 'AVERIADO') {
+    if (unidad.estadoOperativo === 'AVERIADA') {
       setAvisoAveria({ ok: false, texto: `La unidad ${unidad.codigo} ya está averiada.` });
       return;
     }
@@ -245,7 +245,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
   const getCounts = (list: UnidadTransporte[]) => ({
     disp: list.filter(u => u.estadoOperativo === 'DISPONIBLE').length,
     ruta: list.filter(u => u.estadoOperativo === 'EN_RUTA').length,
-    ave: list.filter(u => u.estadoOperativo === 'AVERIADO' || u.estadoOperativo === 'EN_MANTENIMIENTO').length,
+    ave: list.filter(u => u.estadoOperativo === 'AVERIADA' || u.estadoOperativo === 'EN_MANTENIMIENTO').length,
     tot: list.length,
   });
 

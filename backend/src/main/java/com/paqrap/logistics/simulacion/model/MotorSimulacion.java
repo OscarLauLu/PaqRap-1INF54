@@ -62,6 +62,7 @@ public class MotorSimulacion {
     private final ResultadoSimulacionRepository resultadoRepository;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private final com.paqrap.logistics.flota.service.PlanMantenimientoService planMantenimiento;
+    private final com.paqrap.logistics.planificacion.repository.ParadaRutaRepository paradaRutaRepository;
 
     /** Unidades puestas en EN_MANTENIMIENTO por el plan preventivo (para devolverlas a DISPONIBLE). */
     private final java.util.Set<String> enMantenimientoPorPlan = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -300,6 +301,13 @@ public class MotorSimulacion {
             log.error("Error aplicando mantenimiento preventivo en instante {}: {}", instanteActual, e.getMessage());
         }
 
+        // --- Averías activas: traslado al central (tipo 2 y 3) y reincorporación (FAQ 3) ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> atenderAverias(instanteActual));
+        } catch (Exception e) {
+            log.error("Error atendiendo averías en instante {}: {}", instanteActual, e.getMessage());
+        }
+
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
         // --- Transacción 2: Movimientos de flota y entregas ---
@@ -431,6 +439,37 @@ public class MotorSimulacion {
     }
 
     /**
+     * Avanza las averías sin resolver: a las 4 h en el lugar los tipos 2 y 3 se trasladan al central y
+     * sus pedidos pendientes vuelven a planificarse; al llegar la hora de reincorporación la unidad vuelve.
+     */
+    private void atenderAverias(LocalDateTime instante) {
+        List<Averia> activas = averiaRepository.findByResueltaFalse();
+        if (activas.isEmpty()) return;
+        com.paqrap.logistics.redvial.model.Ubicacion central = almacenRepository.findAll().stream()
+                .filter(a -> a instanceof com.paqrap.logistics.almacen.model.AlmacenCentral && a.getUbicacion() != null)
+                .map(com.paqrap.logistics.almacen.model.Almacen::getUbicacion)
+                .findFirst()
+                .orElse(new com.paqrap.logistics.redvial.model.Ubicacion(27, 14));
+        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(rutaRepository.findAll());
+        for (Averia a : activas) {
+            UnidadTransporte u = a.getUnidad();
+            if (u == null || a.getFechaHoraEvento() == null) continue;
+            Ruta ruta = enCurso.get(u.getCodigo());
+            List<com.paqrap.logistics.planificacion.model.ParadaRuta> liberadas = new ArrayList<>();
+            AtencionAverias.Cambio cambio = AtencionAverias.avanzar(a, u, ruta, instante, central, liberadas);
+            if (cambio == AtencionAverias.Cambio.NINGUNO) continue;
+            for (com.paqrap.logistics.planificacion.model.ParadaRuta p : liberadas) {
+                if (p.getPedido() != null) pedidoRepository.save(p.getPedido());
+                paradaRutaRepository.delete(p);
+            }
+            if (ruta != null) rutaRepository.save(ruta);
+            unidadRepository.save(u);
+            averiaRepository.save(a);
+            log.info("Avería {} de {}: {}", a.getCodigo(), u.getCodigo(), cambio);
+        }
+    }
+
+    /**
      * Carga actual de cada vehículo = paquetes aún no entregados de su ruta en curso.
      * Solo se guardan las unidades cuya carga cambió.
      */
@@ -485,6 +524,8 @@ public class MotorSimulacion {
         List<com.paqrap.logistics.almacen.model.Almacen> almacenes = null; // se cargan solo si alguien regresa
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
+            // Una unidad averiada se queda inmóvil donde ocurrió la falla (FAQ 3)
+            if (r.getUnidadTransporte().getEstadoOperativo() == com.paqrap.logistics.flota.model.EstadoOperativo.AVERIADA) continue;
 
             // Si el instante actual corresponde a la hora de alimentación obligatoria del turno (RF-44),
             // el conductor se encuentra en refrigerio y no realiza entregas durante esta hora

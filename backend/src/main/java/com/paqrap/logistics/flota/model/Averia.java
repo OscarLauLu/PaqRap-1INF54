@@ -68,7 +68,9 @@ public class Averia {
     /**
      * Calcula automáticamente la hora estimada de reincorporación según la regla de negocio (RF-14):
      * - Tipo 1: 2 horas después del evento.
-     * - Tipo 2: Lo que ocurra primero entre el fin del siguiente cambio de turno (07:00, 15:00 o 23:00) y un máximo de 4 horas en el lugar.
+     * - Tipo 2: hasta el final del turno siguiente al de la avería (FAQ 3). Ej.: avería a las 10:00
+     *   (turno 07-15) -> el turno siguiente es 15-23 -> se reincorpora a las 23:00. En el lugar
+     *   permanece 4 h como máximo (ver {@link #horasEnElLugar()}).
      * - Tipo 3: Al menos 2 días después, reincorporándose al inicio del turno 15:00-23:00.
      *
      * @param turnoActual Turno activo al momento de la falla (opcional)
@@ -84,13 +86,8 @@ public class Averia {
                 return fechaHoraEvento.plusHours(2);
 
             case TIPO_2:
-                LocalDateTime cuatroHorasDespues = fechaHoraEvento.plusHours(4);
-                LocalDateTime proximoCambioTurno = calcularProximoCambioTurno(fechaHoraEvento);
-                if (proximoCambioTurno.isBefore(cuatroHorasDespues)) {
-                    return proximoCambioTurno;
-                } else {
-                    return cuatroHorasDespues;
-                }
+                // Fin del turno actual + un turno completo (8 h) = fin del turno siguiente
+                return calcularProximoCambioTurno(fechaHoraEvento).plusHours(8);
 
             case TIPO_3:
                 // Al menos 2 días después, inicio del turno 15:00-23:00
@@ -104,6 +101,19 @@ public class Averia {
             default:
                 return fechaHoraEvento.plusHours(2);
         }
+    }
+
+    /**
+     * Horas que la unidad permanece inmóvil en el lugar de la avería (FAQ 3): tipo 1, sus 2 h de
+     * reparación; tipo 2 y 3, 4 h, y luego se traslada de forma instantánea al almacén central.
+     */
+    public int horasEnElLugar() {
+        return (tipo == TipoAveria.TIPO_1) ? 2 : 4;
+    }
+
+    /** true si tras su tiempo en el lugar la unidad se traslada al almacén central (tipos 2 y 3). */
+    public boolean seTrasladaAlCentral() {
+        return tipo == TipoAveria.TIPO_2 || tipo == TipoAveria.TIPO_3;
     }
 
     private LocalDateTime calcularProximoCambioTurno(LocalDateTime momento) {
