@@ -64,6 +64,10 @@ public class MotorSimulacion {
     private final com.paqrap.logistics.flota.service.PlanMantenimientoService planMantenimiento;
     private final com.paqrap.logistics.planificacion.repository.ParadaRutaRepository paradaRutaRepository;
     private final com.paqrap.logistics.planificacion.service.RegistroRescates registroRescates;
+    private final com.paqrap.logistics.redvial.model.RedVial redVial;
+
+    /** Último mes cuyos bloqueos ya se cargaron en la operación diaria */
+    private java.time.YearMonth mesBloqueosCargado;
 
     /** Unidades puestas en EN_MANTENIMIENTO por el plan preventivo (para devolverlas a DISPONIBLE). */
     private final java.util.Set<String> enMantenimientoPorPlan = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -144,6 +148,7 @@ public class MotorSimulacion {
         }
         if (params.getArchivoBloqueos() != null) {
             this.bloqueosProgramados = cargadorArchivos.cargarBloqueos(params.getArchivoBloqueos());
+            this.bloqueosProgramados.forEach(redVial::aplicarBloqueo);
         }
 
         log.info("Motor de simulación configurado exitosamente con {} pedidos y {} bloqueos programados.",
@@ -248,6 +253,14 @@ public class MotorSimulacion {
             }
         }
         reloj.inicializar(inicioSim, factorAceleracion);
+
+        // Operación diaria: los pedidos entran por Registro, pero los bloqueos los planifica la
+        // municipalidad por mes (FAQ 7): se cargan del archivo del mes en curso y al cambiar de mes
+        if (esModoOperacion()) {
+            bloqueosProgramados = new ArrayList<>();
+            mesBloqueosCargado = null;
+            cargarBloqueosOperacionHasta(java.time.YearMonth.from(inicioSim));
+        }
 
         // Solo entran a la simulación los pedidos registrados DESDE la fecha de inicio elegida.
         // Si se inicia, por ejemplo, el 02/09 a las 08:00, los pedidos del 01/09 no son parte de esta
@@ -384,6 +397,10 @@ public class MotorSimulacion {
      */
     public void procesarEventos(LocalDateTime instante) {
         if (instante == null) return;
+
+        if (esModoOperacion()) {
+            cargarBloqueosOperacionHasta(java.time.YearMonth.from(instante));
+        }
 
         // 1. Ingreso de nuevos pedidos según hora simulada
         List<Pedido> entrantes = new ArrayList<>();
@@ -543,6 +560,27 @@ public class MotorSimulacion {
                 u.setEstadoOperativo(EstadoOperativo.DISPONIBLE);
                 unidadRepository.save(u);
             }
+        }
+    }
+
+    /**
+     * Operación diaria: carga los bloqueos oficiales de cada mes pendiente hasta {@code objetivo} y los
+     * aplica a la red vial (el ACO y el camino dibujado los esquivan). Se activan y se muestran en el
+     * mapa cuando entran en vigencia (procesarEventos).
+     */
+    private void cargarBloqueosOperacionHasta(java.time.YearMonth objetivo) {
+        java.time.YearMonth mes = (mesBloqueosCargado == null) ? objetivo : mesBloqueosCargado.plusMonths(1);
+        while (!mes.isAfter(objetivo)) {
+            final java.time.YearMonth mesActual = mes;
+            DirectorioDatos.archivoBloqueos(mesActual).ifPresentOrElse(ruta -> {
+                List<Bloqueo> delMes = cargadorArchivos.cargarBloqueos(ruta);
+                if (!(bloqueosProgramados instanceof ArrayList)) bloqueosProgramados = new ArrayList<>(bloqueosProgramados);
+                bloqueosProgramados.addAll(delMes);
+                delMes.forEach(redVial::aplicarBloqueo);
+                log.info("Operación diaria: {} bloqueos programados para {}", delMes.size(), mesActual);
+            }, () -> log.warn("Operación diaria: no hay archivo de bloqueos para {}", mesActual));
+            mesBloqueosCargado = mesActual;
+            mes = mes.plusMonths(1);
         }
     }
 

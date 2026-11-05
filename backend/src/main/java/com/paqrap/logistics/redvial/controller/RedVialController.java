@@ -6,6 +6,9 @@ import com.paqrap.logistics.redvial.model.Bloqueo;
 import com.paqrap.logistics.redvial.model.Nodo;
 import com.paqrap.logistics.redvial.model.Tramo;
 import com.paqrap.logistics.redvial.service.RedVialService;
+import com.paqrap.logistics.simulacion.model.EstadoEjecucion;
+import com.paqrap.logistics.simulacion.model.SimulacionSession;
+import com.paqrap.logistics.simulacion.service.SimulacionSessionManager;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,6 +38,7 @@ public class RedVialController {
 
     private final RedVialService redVialService;
     private final ArchivoStorageService archivoStorageService;
+    private final SimulacionSessionManager sessionManager;
 
     @GetMapping("/nodo")
     @Operation(summary = "Obtener nodo de la retícula por coordenadas (x, y)")
@@ -60,7 +65,14 @@ public class RedVialController {
 
     @GetMapping("/bloqueos")
     @Operation(summary = "Listar bloqueos viales registrados (RF-10, RF-11)")
-    public ResponseEntity<List<Bloqueo>> listarBloqueos(@RequestParam(defaultValue = "false") boolean soloActivos) {
+    public ResponseEntity<List<Bloqueo>> listarBloqueos(
+            @RequestParam(defaultValue = "false") boolean soloActivos,
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        // En una simulación (5D o colapso) los bloqueos viven en la sesión del operario, no en la base
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            return ResponseEntity.ok(sesion.obtenerBloqueosVigentes());
+        }
         if (soloActivos) {
             return ResponseEntity.ok(redVialService.listarBloqueosActivos());
         }

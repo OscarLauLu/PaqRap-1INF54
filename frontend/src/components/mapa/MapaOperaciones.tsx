@@ -702,6 +702,23 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     }
   };
 
+  /**
+   * Si el vehículo está detenido en una parada según su horario: la hora de acondicionamiento en el
+   * cliente (FAQ 14) o el trasvase de una ruta de rescate. Usa la misma hora simulada que se dibuja.
+   */
+  const actividadEnParada = (r?: RutaMapa): string | null => {
+    const ms = mostradoRef.current;
+    const h = r?.horario;
+    if (ms === null || !h) return null;
+    for (let i = 0; i < h.paradas.length; i++) {
+      const p = h.paradas[i];
+      if (ms >= p.llegada && ms < p.salida) {
+        return i === 0 && r?.rescataA ? `Trasvasando la carga de ${r.rescataA}` : 'Entregando producto';
+      }
+    }
+    return null;
+  };
+
   // ---- Contenido del popup según lo seleccionado ----
   const contenidoPopup = (() => {
     if (!seleccion) return null;
@@ -726,7 +743,12 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               <BarraPopup valor={u.cargaActual} total={capacidad} color={COLOR_TIPO[u.tipoNombre] ?? '#3B82F6'} />
             </div>
             <FilaPopup etiqueta="Pendientes">
-              {pendientes.length > 0 ? `${pendientes.length} · sigue ${pendientes[0]}` : rutaDe.has(u.codigo) ? 'Regresando al almacén' : 'Sin ruta asignada'}
+              {(() => {
+                const actividad = actividadEnParada(rutaDe.get(u.codigo));
+                if (actividad) return pendientes.length > 0 ? `${actividad} · quedan ${pendientes.length}` : actividad;
+                if (pendientes.length > 0) return `${pendientes.length} · sigue ${pendientes[0]}`;
+                return rutaDe.has(u.codigo) ? 'Regresando al almacén' : 'Sin ruta asignada';
+              })()}
             </FilaPopup>
             {rutaDe.get(u.codigo)?.rescataA && (
               <FilaPopup etiqueta="Rescate">
@@ -941,7 +963,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
             const mx = toSvgX(medio[0]);
             const my = toSvgY(medio[1]);
             return (
-              <g key={`bloqueo-${b.id}`} className="select-none">
+              <g key={`bloqueo-${b.codigo ?? b.id}`} className="select-none">
                 <polyline points={linea} fill="none" stroke="#111827" strokeWidth="0.2" strokeLinecap="round" strokeLinejoin="round" />
                 {/* Barrera de obra: blanca con franjas rojas y borde negro, como las barreras reales */}
                 <rect x={mx - 0.45} y={my - 0.28} width="0.9" height="0.56" rx="0.1" fill="white" stroke="#111827" strokeWidth="0.07" />

@@ -62,15 +62,19 @@ public class RedVial {
 
     private final List<BloqueoVialInfo> listaBloqueos = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    private LocalDateTime lastInstanteCache = null;
-    private Set<String> lastAristasCache = null;
+    /** Última consulta (instante y calles bloqueadas), en un solo objeto para que sea segura entre hilos */
+    private record AristasEnInstante(LocalDateTime instante, Set<String> aristas) {}
+    private volatile AristasEnInstante ultimaConsulta = null;
+    /** Bloqueos ya aplicados (inicio|fin|coordenadas): aplicar dos veces el mismo no lo duplica */
+    private final Set<String> bloqueosAplicados = ConcurrentHashMap.newKeySet();
 
     public Set<String> aristasBloqueadasEn(LocalDateTime instante) {
         if (instante == null || listaBloqueos.isEmpty()) {
             return Collections.emptySet();
         }
-        if (instante.equals(lastInstanteCache) && lastAristasCache != null) {
-            return lastAristasCache;
+        AristasEnInstante cache = ultimaConsulta;
+        if (cache != null && instante.equals(cache.instante())) {
+            return cache.aristas();
         }
         Set<String> activas = new HashSet<>();
         for (BloqueoVialInfo b : listaBloqueos) {
@@ -78,9 +82,9 @@ public class RedVial {
                 activas.addAll(b.getAristas());
             }
         }
-        lastInstanteCache = instante;
-        lastAristasCache = activas;
-        return activas;
+        Set<String> inmutable = Collections.unmodifiableSet(activas);
+        ultimaConsulta = new AristasEnInstante(instante, inmutable);
+        return inmutable;
     }
 
     @PostConstruct
@@ -242,6 +246,8 @@ public class RedVial {
 
     public void aplicarBloqueo(Bloqueo bloqueo) {
         if (bloqueo == null || bloqueo.getCoordenadasNodos() == null) return;
+        String clave = bloqueo.getFechaHoraInicio() + "|" + bloqueo.getFechaHoraFin() + "|" + bloqueo.getCoordenadasNodos().replace(" ", "");
+        if (!bloqueosAplicados.add(clave)) return;   // ya estaba aplicado
         String[] coords = bloqueo.getCoordenadasNodos().split(",");
         Set<String> aristas = new HashSet<>();
         for (int i = 0; i + 3 < coords.length; i += 2) {
@@ -403,8 +409,9 @@ public class RedVial {
     }
 
     // Caché de distancias expansivas por Nodo origen (Memoization)
-    private final Map<Nodo, int[][]> distanciasCache = new ConcurrentHashMap<>();
-    private Set<String> aristasEnDistanciasCache = null;
+    // Indexada por el conjunto de calles bloqueadas: sesiones en distintas fechas no se mezclan
+    private final Map<Set<String>, Map<Nodo, int[][]>> distanciasCache = new ConcurrentHashMap<>();
+    private static final int MAX_CONJUNTOS_EN_CACHE = 32;
 
     /**
      * Calcula la distancia más corta desde el nodo origen hacia TODOS los nodos de la red en un solo BFS.
@@ -412,19 +419,19 @@ public class RedVial {
      */
     public int[][] distanciasDesde(Nodo origen, LocalDateTime instante) {
         Set<String> aristasBloqueadas = aristasBloqueadasEn(instante);
-        
-        // Invalidar caché si el mapa de calles bloqueadas cambió
-        if (aristasEnDistanciasCache == null || !aristasEnDistanciasCache.equals(aristasBloqueadas)) {
-            distanciasCache.clear();
-            aristasEnDistanciasCache = new HashSet<>(aristasBloqueadas);
-        }
 
         if (aristasBloqueadas.isEmpty()) {
             return null; // Sin bloqueos, la distancia Manhattan es la mínima
         }
 
+        // Caché de este conjunto de calles bloqueadas (se acota para no crecer sin límite)
+        if (distanciasCache.size() > MAX_CONJUNTOS_EN_CACHE && !distanciasCache.containsKey(aristasBloqueadas)) {
+            distanciasCache.clear();
+        }
+        Map<Nodo, int[][]> cachePorOrigen = distanciasCache.computeIfAbsent(aristasBloqueadas, k -> new ConcurrentHashMap<>());
+
         // Si ya calculamos la onda desde esta esquina, retornamos la copia de la RAM
-        int[][] cached = distanciasCache.get(origen);
+        int[][] cached = cachePorOrigen.get(origen);
         if (cached != null) {
             return cached;
         }
@@ -469,7 +476,7 @@ public class RedVial {
         }
         
         // Guardamos el cálculo en la memoria caché para la próxima hormiga
-        distanciasCache.put(origen, dist);
+        cachePorOrigen.put(origen, dist);
         return dist;
     }
 

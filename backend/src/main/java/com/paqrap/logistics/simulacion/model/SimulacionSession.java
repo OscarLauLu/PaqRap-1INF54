@@ -110,6 +110,7 @@ public class SimulacionSession {
 
     // Carga de datos por mes y mantenimiento preventivo
     private CargadorArchivos cargador;
+    private RedVial redVial;
     private PlanMantenimientoService planMantenimiento;
     private AlmacenRepository almacenRepo;
     /** true = pedidos y bloqueos salen de los archivos oficiales del mes simulado. */
@@ -210,6 +211,7 @@ public class SimulacionSession {
             PlanMantenimientoService planMantenimiento) {
 
         actualizarAcceso();
+        this.redVial = redVial;
         this.cargador = cargador;
         this.almacenRepo = almacenRepo;
         this.planMantenimiento = planMantenimiento;
@@ -229,6 +231,7 @@ public class SimulacionSession {
         } else {
             // Se relee el archivo en cada corrida: la anterior consumió los pedidos programados
             configurar(parametros, cargador);
+            aplicarEnRedVial(bloqueosProgramados);
         }
 
         if (executorService != null && !executorService.isShutdown()) {
@@ -370,11 +373,29 @@ public class SimulacionSession {
             DirectorioDatos.archivoVentas(mesActual).ifPresentOrElse(
                     ruta -> pedidosProgramados.addAll(cargador.cargarPedidos(ruta)),
                     () -> log.warn("Sesión {}: no hay archivo de ventas para {}", sessionId, mesActual));
-            DirectorioDatos.archivoBloqueos(mesActual).ifPresent(
-                    ruta -> bloqueosProgramados.addAll(cargador.cargarBloqueos(ruta)));
+            DirectorioDatos.archivoBloqueos(mesActual).ifPresent(ruta -> {
+                List<Bloqueo> delMes = cargador.cargarBloqueos(ruta);
+                bloqueosProgramados.addAll(delMes);
+                aplicarEnRedVial(delMes);
+            });
             ultimoMesCargado = mesActual;
             mes = mes.plusMonths(1);
         }
+    }
+
+    /**
+     * Los bloqueos se aplican a la red vial para que el ACO y el camino dibujado los esquiven (FAQ 7).
+     * La red guarda la ventana de cada bloqueo y filtra por la hora de cada consulta, así que es
+     * compartida entre sesiones sin que una afecte a otra en otra fecha.
+     */
+    private void aplicarEnRedVial(List<Bloqueo> bloqueos) {
+        if (redVial == null || bloqueos == null) return;
+        bloqueos.forEach(redVial::aplicarBloqueo);
+    }
+
+    /** Bloqueos vigentes en el reloj de esta sesión, para dibujarlos en el mapa. */
+    public List<Bloqueo> obtenerBloqueosVigentes() {
+        return new ArrayList<>(bloqueosActivos);
     }
 
     /**
