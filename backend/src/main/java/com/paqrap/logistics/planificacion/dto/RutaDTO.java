@@ -31,4 +31,9 @@ public class RutaDTO {
     // Esquinas por las que pasa la ruta, en orden. El frontend las necesita para dibujar
     // el recorrido real en el mapa, ya que las paradas solas no dicen por qué calles se va.
     private List<Ubicacion> camino;
+
+    // Regreso al terminar las entregas: almacén con stock más cercano y hora en que el vehículo llega.
+    // El camino ya incluye el tramo de regreso, así el mapa muestra al vehículo volviendo.
+    private String almacenRetornoCodigo;
+    private LocalDateTime horaLlegadaAlmacen;
 }

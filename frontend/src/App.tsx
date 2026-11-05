@@ -92,8 +92,7 @@ export const App: React.FC = () => {
   const salidaDe = (r: RutaApi) => parsearFechaLocal(r.fechaHoraGeneracion) ?? Number.MAX_SAFE_INTEGER;
   const rutaVigentePorUnidad = new Map<string, RutaApi>();
   for (const r of rutasApiData) {
-    if (r.estado === 'COMPLETADA') continue;
-    if (!(r.paradas || []).some((p) => !p.entregada)) continue;
+    if (r.estado === 'COMPLETADA') continue;   // una ruta con todo entregado sigue vigente mientras regresa
     const actual = rutaVigentePorUnidad.get(r.unidadCodigo);
     const antes = actual && (salidaDe(r) < salidaDe(actual) || (salidaDe(r) === salidaDe(actual) && r.id < actual.id));
     if (!actual || antes) rutaVigentePorUnidad.set(r.unidadCodigo, r);
@@ -111,7 +110,8 @@ export const App: React.FC = () => {
       const codigosPedidos: string[] = paradasPendientes
         .map((p) => p.codigoPedido)
         .filter((c): c is string => c !== undefined && c !== null);
-      if (paradasPendientes.length === 0) return null;
+      // Sin paradas pendientes el vehículo está regresando al almacén: su ruta se sigue mostrando
+      const regresando = paradasPendientes.length === 0;
 
       // Si el backend envía el camino real se usa ese, porque refleja las calles que de verdad recorre
       const camino = r.camino ?? [];
@@ -134,12 +134,14 @@ export const App: React.FC = () => {
           if (llegada === null) { horarioCompleto = false; continue; }
           horarioParadas.push({ idx: i, llegada, salida: llegada + (p.tiempoServicioMin ?? 60) * 60_000 });
         }
-        const horario = horarioCompleto && salida !== null ? { salida, paradas: horarioParadas } : undefined;
+        const retorno = parsearFechaLocal(r.horaLlegadaAlmacen) ?? undefined;
+        const horario = horarioCompleto && salida !== null ? { salida, paradas: horarioParadas, retorno } : undefined;
         // Se arranca en la esquina más cercana al vehículo para no dibujar el tramo que ya pasó
         let inicio = desde;
-        if (unidad?.ubicacionActual && hasta > desde) {
+        const tope = hasta === -1 ? camino.length - 1 : hasta;   // regresando: hasta el almacén
+        if (unidad?.ubicacionActual && tope > desde) {
           let mejor = Infinity;
-          for (let k = desde; k <= hasta; k++) {
+          for (let k = desde; k <= tope; k++) {
             const d = Math.abs(camino[k].posX - unidad.ubicacionActual.posX) + Math.abs(camino[k].posY - unidad.ubicacionActual.posY);
             if (d < mejor) { mejor = d; inicio = k; }
           }
@@ -150,6 +152,9 @@ export const App: React.FC = () => {
           ? { unidadCodigo: r.unidadCodigo, puntos, codigosPedidos, esCamino: true, caminoCompleto: camino, horario }
           : null;
       }
+
+      // Sin camino no se puede dibujar el regreso; el vehículo se ve en la posición que informa el backend
+      if (regresando) return null;
 
       // Si no llegó camino, se une el vehículo con sus paradas pendientes para no perder la ruta
       const pendientes = paradasPendientes.map((p) => p.destino);

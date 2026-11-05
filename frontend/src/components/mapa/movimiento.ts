@@ -8,7 +8,12 @@
 export type Horario = { s: number[]; t: number[] };
 
 /** Horario de una ruta: salida del almacén y, por parada, índice en el camino, llegada y fin del acondicionamiento */
-export type HorarioRuta = { salida: number; paradas: Array<{ idx: number; llegada: number; salida: number }> };
+export type HorarioRuta = {
+  salida: number;
+  paradas: Array<{ idx: number; llegada: number; salida: number }>;
+  /** Llegada al almacén de regreso; el camino termina en ese almacén */
+  retorno?: number;
+};
 
 /**
  * Arma el horario sobre un trazado cuyo arreglo "acum" tiene los km acumulados en cada esquina del camino.
@@ -23,6 +28,12 @@ export const crearHorario = (tr: { acum: number[] }, h: HorarioRuta): Horario | 
     const llegada = Math.max(p.llegada, t[t.length - 1]); // el tiempo nunca retrocede
     s.push(sp, sp);
     t.push(llegada, Math.max(p.salida, llegada));
+  }
+  // Regreso: desde la última parada hasta el final del camino (el almacén)
+  const fin = tr.acum[tr.acum.length - 1];
+  if (h.retorno !== undefined && fin > s[s.length - 1]) {
+    s.push(fin);
+    t.push(Math.max(h.retorno, t[t.length - 1]));
   }
   return { s, t };
 };

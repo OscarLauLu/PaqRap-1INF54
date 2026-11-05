@@ -15,14 +15,13 @@ import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.Pedido;
 import com.paqrap.logistics.planificacion.dto.ParadaRutaDTO;
 import com.paqrap.logistics.planificacion.dto.RutaDTO;
+import com.paqrap.logistics.planificacion.model.CaminoRuta;
 import com.paqrap.logistics.planificacion.model.EstadoRuta;
 import com.paqrap.logistics.planificacion.model.ParadaRuta;
 import com.paqrap.logistics.planificacion.model.Planificador;
 import com.paqrap.logistics.planificacion.model.Ruta;
 import com.paqrap.logistics.redvial.model.Bloqueo;
-import com.paqrap.logistics.redvial.model.Nodo;
 import com.paqrap.logistics.redvial.model.RedVial;
-import com.paqrap.logistics.redvial.model.Tramo;
 import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.redvial.service.RedVialService;
 import com.paqrap.logistics.simulacion.repository.ResultadoSimulacionRepository;
@@ -38,7 +37,6 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +106,7 @@ public class SimulacionSession {
     // Carga de datos por mes y mantenimiento preventivo
     private CargadorArchivos cargador;
     private PlanMantenimientoService planMantenimiento;
+    private AlmacenRepository almacenRepo;
     /** true = pedidos y bloqueos salen de los archivos oficiales del mes simulado. */
     private boolean datosPorFecha;
     private YearMonth ultimoMesCargado;
@@ -205,6 +204,7 @@ public class SimulacionSession {
 
         actualizarAcceso();
         this.cargador = cargador;
+        this.almacenRepo = almacenRepo;
         this.planMantenimiento = planMantenimiento;
 
         LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
@@ -303,7 +303,7 @@ public class SimulacionSession {
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
         // 2. Movimientos de flota y entregas
-        ejecutarMovimientosFlota(instanteActual);
+        ejecutarMovimientosFlota(instanteActual, almacenRepo.findAll());
 
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
@@ -445,7 +445,7 @@ public class SimulacionSession {
         }
     }
 
-    private void ejecutarMovimientosFlota(LocalDateTime instante) {
+    private void ejecutarMovimientosFlota(LocalDateTime instante, List<Almacen> almacenes) {
         List<Ruta> copiaRutas = new ArrayList<>(this.rutas);
         for (Ruta r : copiaRutas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
@@ -524,10 +524,10 @@ public class SimulacionSession {
                 }
             }
 
+            // Con todo entregado, el vehículo regresa al almacén con stock más cercano (FAQ 10):
+            // se ve viajando y queda DISPONIBLE al llegar
             if (todasEntregadas && !r.getParadas().isEmpty()) {
-                r.setEstado(EstadoRuta.COMPLETADA);
-                r.getUnidadTransporte().setUbicacionActual(new Ubicacion(27, 14));
-                r.getUnidadTransporte().setEstadoOperativo(EstadoOperativo.DISPONIBLE);
+                r.avanzarRetorno(instante, almacenes);
             }
         }
     }
@@ -815,9 +815,12 @@ public class SimulacionSession {
 
     public List<RutaDTO> obtenerRutasDTO(EstadoRuta estadoFiltro, RedVialService redVialService) {
         LocalDateTime instante = reloj.getInstanteActual();
+        List<Almacen> almacenes = (almacenRepo != null) ? almacenRepo.findAll() : List.of();
         return rutas.stream()
                 .filter(r -> estadoFiltro == null || r.getEstado() == estadoFiltro)
                 .map(r -> {
+                    // Regreso al almacén con stock más cercano a la última entrega (FAQ 10)
+                    Almacen retorno = Ruta.almacenDeRetorno(r.puntoFinalEntregas(), almacenes);
                     List<ParadaRutaDTO> paradasDTO = r.getParadas().stream().map(p -> ParadaRutaDTO.builder()
                             .id(p.getId())
                             .orden(p.getOrden())
@@ -848,45 +851,22 @@ public class SimulacionSession {
                             .costoTotal(r.getCostoTotal())
                             .estado(r.getEstado())
                             .paradas(paradasDTO)
-                            .camino(calcularCamino(r, redVialService, instante))
+                            .camino(calcularCamino(r, retorno, redVialService, instante))
+                            .almacenRetornoCodigo(retorno != null ? retorno.getCodigo() : null)
+                            .horaLlegadaAlmacen(retorno != null ? r.horaLlegadaAlmacen(retorno) : null)
                             .build();
                 })
                 .collect(Collectors.toList());
     }
 
-    private List<Ubicacion> calcularCamino(Ruta r, RedVialService redVialService, LocalDateTime instante) {
+    private List<Ubicacion> calcularCamino(Ruta r, Almacen retorno, RedVialService redVialService, LocalDateTime instante) {
         if (r.getEstado() == EstadoRuta.COMPLETADA || r.getAlmacenOrigen() == null
                 || r.getAlmacenOrigen().getUbicacion() == null || redVialService == null) {
             return List.of();
         }
         try {
-            List<Ubicacion> puntos = new ArrayList<>();
-            puntos.add(r.getAlmacenOrigen().getUbicacion());
-            r.getParadas().stream()
-                    .sorted(Comparator.comparingInt(ParadaRuta::getOrden))
-                    .filter(p -> p.getPedido() != null && p.getPedido().getDestino() != null)
-                    .forEach(p -> puntos.add(p.getPedido().getDestino()));
-
-            List<Ubicacion> camino = new ArrayList<>();
-            camino.add(puntos.get(0));
-            for (int i = 1; i < puntos.size(); i++) {
-                Ubicacion desde = puntos.get(i - 1);
-                Ubicacion hasta = puntos.get(i);
-                List<Tramo> tramos = redVialService.calcularRutaMinima(
-                        desde.getPosX(), desde.getPosY(), hasta.getPosX(), hasta.getPosY(), instante);
-
-                if (tramos == null || tramos.isEmpty()) {
-                    camino.add(hasta);
-                    continue;
-                }
-                Nodo actual = Nodo.deUbicacion(camino.get(camino.size() - 1));
-                for (Tramo t : tramos) {
-                    Nodo siguiente = t.getNodoOrigen().equals(actual) ? t.getNodoDestino() : t.getNodoOrigen();
-                    camino.add(siguiente.aUbicacion());
-                    actual = siguiente;
-                }
-            }
-            return camino;
+            List<Ubicacion> puntos = CaminoRuta.puntosDeVisita(r, retorno != null ? retorno.getUbicacion() : null);
+            return CaminoRuta.unir(puntos, redVialService, instante);
         } catch (Exception e) {
             return List.of();
         }

@@ -24,6 +24,9 @@ export interface RutaApi {
   paradas: ParadaRutaApi[];
   // Esquinas del recorrido calculado en el backend; permiten dibujar la ruta real y no una aproximación
   camino?: Ubicacion[];
+  /** Regreso al terminar: almacén con stock más cercano y hora de llegada (el camino ya lo incluye) */
+  almacenRetornoCodigo?: string | null;
+  horaLlegadaAlmacen?: string | null;
 }
 
 export const rutasApi = {

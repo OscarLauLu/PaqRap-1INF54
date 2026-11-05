@@ -482,6 +482,7 @@ public class MotorSimulacion {
     private void ejecutarMovimientosFlota(LocalDateTime instante) {
         // Obtenemos las rutas en ejecución o recién planificadas
         List<Ruta> rutasActivas = rutaRepository.findAll();
+        List<com.paqrap.logistics.almacen.model.Almacen> almacenes = null; // se cargan solo si alguien regresa
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
 
@@ -565,11 +566,11 @@ public class MotorSimulacion {
                 }
             }
 
-            // Si todas están entregadas, regresar al almacén y liberar
+            // Si todas están entregadas, el vehículo regresa al almacén con stock más cercano (FAQ 10);
+            // se ve viajando y queda DISPONIBLE al llegar
             if (todasEntregadas && !r.getParadas().isEmpty()) {
-                r.setEstado(EstadoRuta.COMPLETADA);
-                r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(27, 14));
-                r.getUnidadTransporte().setEstadoOperativo(com.paqrap.logistics.flota.model.EstadoOperativo.DISPONIBLE);
+                if (almacenes == null) almacenes = almacenRepository.findAll();
+                r.avanzarRetorno(instante, almacenes);
                 unidadRepository.save(r.getUnidadTransporte());
             }
             rutaRepository.save(r);

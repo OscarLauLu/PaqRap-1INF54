@@ -1,18 +1,19 @@
 package com.paqrap.logistics.planificacion.service;
 
+import com.paqrap.logistics.almacen.model.Almacen;
+import com.paqrap.logistics.almacen.repository.AlmacenRepository;
 import com.paqrap.logistics.common.exception.ResourceNotFoundException;
 import com.paqrap.logistics.planificacion.algoritmo.AlgoritmoACO;
 import com.paqrap.logistics.planificacion.algoritmo.AlgoritmoALNS;
 import com.paqrap.logistics.planificacion.dto.ParadaRutaDTO;
 import com.paqrap.logistics.planificacion.dto.PlanificacionResultDTO;
 import com.paqrap.logistics.planificacion.dto.RutaDTO;
+import com.paqrap.logistics.planificacion.model.CaminoRuta;
 import com.paqrap.logistics.planificacion.model.EstadoRuta;
 import com.paqrap.logistics.planificacion.model.ParadaRuta;
 import com.paqrap.logistics.planificacion.model.Planificador;
 import com.paqrap.logistics.planificacion.model.Ruta;
 import com.paqrap.logistics.planificacion.repository.RutaRepository;
-import com.paqrap.logistics.redvial.model.Nodo;
-import com.paqrap.logistics.redvial.model.Tramo;
 import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.redvial.service.RedVialService;
 import com.paqrap.logistics.simulacion.model.RelojSimulado;
@@ -22,8 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -43,6 +42,8 @@ public class PlanificacionService {
     // Se usan para armar el camino de cada ruta con los bloqueos vigentes en la simulación
     private final RedVialService redVialService;
     private final RelojSimulado relojSimulado;
+    // Para elegir el almacén de regreso de cada ruta
+    private final AlmacenRepository almacenRepository;
 
     @Transactional
     public PlanificacionResultDTO ejecutarCiclo(LocalDateTime instante) {
@@ -58,21 +59,22 @@ public class PlanificacionService {
                 .totalRutasPlanificadas(rutas.size())
                 .totalPedidosAtendidos(totalPedidos)
                 .costoTotalEstimado(Math.round(costoTotal * 100.0) / 100.0)
-                .rutas(rutas.stream().map(this::mapearRutaADTO).collect(Collectors.toList()))
+                .rutas(rutas.stream().map(r -> mapearRutaADTO(r, almacenRepository.findAll())).collect(Collectors.toList()))
                 .build();
     }
 
     @Transactional(readOnly = true)
     public List<RutaDTO> listarRutas(EstadoRuta estado) {
         List<Ruta> rutas = (estado != null) ? rutaRepository.findByEstado(estado) : rutaRepository.findAll();
-        return rutas.stream().map(this::mapearRutaADTO).collect(Collectors.toList());
+        List<Almacen> almacenes = almacenRepository.findAll();
+        return rutas.stream().map(r -> mapearRutaADTO(r, almacenes)).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public RutaDTO obtenerRuta(Long id) {
         Ruta r = rutaRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Ruta", "id", id));
-        return mapearRutaADTO(r);
+        return mapearRutaADTO(r, almacenRepository.findAll());
     }
 
     public String cambiarAlgoritmo(String nombre) {
@@ -85,11 +87,14 @@ public class PlanificacionService {
         return planificador.getAlgoritmoRuteo().obtenerNombre();
     }
 
-    private RutaDTO mapearRutaADTO(Ruta r) {
+    private RutaDTO mapearRutaADTO(Ruta r, List<Almacen> almacenes) {
         List<ParadaRutaDTO> paradasDTO = r.getParadas().stream().map(this::mapearParadaADTO).collect(Collectors.toList());
 
         String tipoVehiculo = (r.getUnidadTransporte() != null && r.getUnidadTransporte().getTipo() != null)
                 ? r.getUnidadTransporte().getTipo().getNombre() : null;
+
+        // Regreso al almacén con stock más cercano a la última entrega (FAQ 10)
+        Almacen retorno = Ruta.almacenDeRetorno(r.puntoFinalEntregas(), almacenes);
 
         return RutaDTO.builder()
                 .id(r.getId())
@@ -104,16 +109,17 @@ public class PlanificacionService {
                 .costoTotal(r.getCostoTotal())
                 .estado(r.getEstado())
                 .paradas(paradasDTO)
-                .camino(calcularCamino(r))
+                .camino(calcularCamino(r, retorno))
+                .almacenRetornoCodigo(retorno != null ? retorno.getCodigo() : null)
+                .horaLlegadaAlmacen(retorno != null ? r.horaLlegadaAlmacen(retorno) : null)
                 .build();
     }
 
     /**
-     * Arma el camino de la ruta uniendo el almacén y cada parada con la ruta mínima de la red vial,
-     * porque es el cálculo que esquiva bloqueos y así el dibujo no atraviesa calles cerradas.
-     * Las rutas completadas se omiten porque ya no se dibujan y solo gastarían cálculo.
+     * Camino de la ruta: almacén, cada parada y el regreso, unidos con la ruta mínima de la red vial
+     * (esquiva bloqueos, así el dibujo no atraviesa calles cerradas). Las rutas completadas se omiten.
      */
-    private List<Ubicacion> calcularCamino(Ruta r) {
+    private List<Ubicacion> calcularCamino(Ruta r, Almacen retorno) {
         if (r.getEstado() == EstadoRuta.COMPLETADA || r.getAlmacenOrigen() == null
                 || r.getAlmacenOrigen().getUbicacion() == null) {
             return List.of();
@@ -121,38 +127,8 @@ public class PlanificacionService {
         try {
             // Se usa la hora simulada y no la real, porque los bloqueos dependen del momento de la simulación
             LocalDateTime instante = relojSimulado.getInstanteActual();
-
-            // Orden de visita: el almacén primero y luego las paradas según las ordenó el algoritmo
-            List<Ubicacion> puntos = new ArrayList<>();
-            puntos.add(r.getAlmacenOrigen().getUbicacion());
-            r.getParadas().stream()
-                    .sorted(Comparator.comparingInt(ParadaRuta::getOrden))
-                    .filter(p -> p.getPedido() != null && p.getPedido().getDestino() != null)
-                    .forEach(p -> puntos.add(p.getPedido().getDestino()));
-
-            List<Ubicacion> camino = new ArrayList<>();
-            camino.add(puntos.get(0));
-            for (int i = 1; i < puntos.size(); i++) {
-                Ubicacion desde = puntos.get(i - 1);
-                Ubicacion hasta = puntos.get(i);
-                List<Tramo> tramos = redVialService.calcularRutaMinima(
-                        desde.getPosX(), desde.getPosY(), hasta.getPosX(), hasta.getPosY(), instante);
-
-                if (tramos == null || tramos.isEmpty()) {
-                    // Si no hay camino (o es el mismo punto) se une directo para que la línea no quede cortada
-                    camino.add(hasta);
-                    continue;
-                }
-                // Se toma el extremo del tramo distinto al punto actual, porque los tramos son de
-                // doble sentido y pueden venir con origen y destino invertidos
-                Nodo actual = Nodo.deUbicacion(camino.get(camino.size() - 1));
-                for (Tramo t : tramos) {
-                    Nodo siguiente = t.getNodoOrigen().equals(actual) ? t.getNodoDestino() : t.getNodoOrigen();
-                    camino.add(siguiente.aUbicacion());
-                    actual = siguiente;
-                }
-            }
-            return camino;
+            List<Ubicacion> puntos = CaminoRuta.puntosDeVisita(r, retorno != null ? retorno.getUbicacion() : null);
+            return CaminoRuta.unir(puntos, redVialService, instante);
         } catch (Exception e) {
             // Un error aquí no debe impedir listar las rutas; el mapa usará su dibujo de respaldo
             log.warn("No se pudo calcular el camino de la ruta {}: {}", r.getCodigo(), e.getMessage());

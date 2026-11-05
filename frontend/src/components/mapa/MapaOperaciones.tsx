@@ -5,7 +5,7 @@ import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
 import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
 import { parsearFechaLocal } from '../../utils/fechaLocal';
-import { crearHorario, distanciaEn, sinAlimentacion, type Horario } from './movimiento';
+import { crearHorario, distanciaEn, sinAlimentacion, type Horario, type HorarioRuta } from './movimiento';
 
 /** Recorrido planificado de un vehículo: sus paradas en orden (empezando por su origen). */
 export interface RutaMapa {
@@ -22,7 +22,7 @@ export interface RutaMapa {
    * en caminoCompleto, la llegada y el fin del acondicionamiento. Con esto el mapa calcula la posición
    * del vehículo en cada cuadro, sin esperar a la siguiente consulta al backend.
    */
-  horario?: { salida: number; paradas: Array<{ idx: number; llegada: number; salida: number }> };
+  horario?: HorarioRuta;
 }
 
 /** Reloj simulado que recibe el mapa: con él se estima la hora simulada entre consultas */

@@ -2,6 +2,7 @@ package com.paqrap.logistics.planificacion.model;
 
 import com.paqrap.logistics.almacen.model.Almacen;
 import com.paqrap.logistics.flota.model.UnidadTransporte;
+import com.paqrap.logistics.redvial.model.Ubicacion;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -177,6 +178,112 @@ public class Ruta {
             }
         }
         return enCurso;
+    }
+
+    // ===== Regreso al almacén al terminar las entregas (FAQ 10) =====
+
+    /** Punto donde termina la última entrega (o el almacén de salida si no hay paradas con destino). */
+    public Ubicacion puntoFinalEntregas() {
+        if (paradas != null) {
+            for (int i = paradas.size() - 1; i >= 0; i--) {
+                ParadaRuta p = paradas.get(i);
+                if (p.getPedido() != null && p.getPedido().getDestino() != null) {
+                    return p.getPedido().getDestino();
+                }
+            }
+        }
+        return almacenOrigen != null ? almacenOrigen.getUbicacion() : null;
+    }
+
+    /** Instante en que termina el acondicionamiento de la última entrega. */
+    public LocalDateTime finEntregas() {
+        LocalDateTime fin = fechaHoraGeneracion;
+        if (paradas != null) {
+            for (ParadaRuta p : paradas) {
+                if (p.getHoraEstimadaLlegada() == null) continue;
+                LocalDateTime salida = p.getHoraEstimadaLlegada().plusMinutes(p.getTiempoServicioMin());
+                if (fin == null || salida.isAfter(fin)) fin = salida;
+            }
+        }
+        return fin;
+    }
+
+    /**
+     * Almacén al que vuelve el vehículo: el más cercano (distancia por calles de la retícula) que tenga
+     * stock, porque una unidad no puede volver a un almacén sin stock (FAQ 10). El central siempre tiene.
+     */
+    public static Almacen almacenDeRetorno(Ubicacion desde, java.util.Collection<? extends Almacen> almacenes) {
+        if (desde == null || almacenes == null) return null;
+        Almacen mejor = null;
+        int mejorDist = Integer.MAX_VALUE;
+        for (Almacen a : almacenes) {
+            if (a == null || a.getUbicacion() == null || !a.tieneStockSuficiente(1)) continue;
+            int d = Math.abs(a.getUbicacion().getPosX() - desde.getPosX()) + Math.abs(a.getUbicacion().getPosY() - desde.getPosY());
+            if (d < mejorDist || (d == mejorDist && mejor != null && a.getCodigo().compareTo(mejor.getCodigo()) < 0)) {
+                mejor = a;
+                mejorDist = d;
+            }
+        }
+        return mejor;
+    }
+
+    /** Hora de llegada al almacén de retorno, a la velocidad promedio del tipo de vehículo. */
+    public LocalDateTime horaLlegadaAlmacen(Almacen destino) {
+        LocalDateTime salida = finEntregas();
+        Ubicacion desde = puntoFinalEntregas();
+        if (salida == null || destino == null || destino.getUbicacion() == null || desde == null) return salida;
+        double velocidad = (unidadTransporte != null && unidadTransporte.getTipo() != null
+                && unidadTransporte.getTipo().getVelocidadPromedioKmH() > 0)
+                ? unidadTransporte.getTipo().getVelocidadPromedioKmH() : 25.0;
+        int km = Math.abs(destino.getUbicacion().getPosX() - desde.getPosX())
+                + Math.abs(destino.getUbicacion().getPosY() - desde.getPosY());
+        long segundos = Math.round(km / velocidad * 3600);
+        return salida.plusSeconds(segundos);
+    }
+
+    /**
+     * Con todas las paradas entregadas, el vehículo vuelve al almacén en vez de aparecer allí de golpe.
+     * Mientras viaja sigue EN_RUTA y se actualiza su posición (por calles: primero en X y luego en Y);
+     * al llegar la ruta se completa y la unidad queda DISPONIBLE en ese almacén.
+     *
+     * @return true si el vehículo ya llegó al almacén
+     */
+    public boolean avanzarRetorno(LocalDateTime instante, java.util.Collection<? extends Almacen> almacenes) {
+        UnidadTransporte u = unidadTransporte;
+        Ubicacion desde = puntoFinalEntregas();
+        Almacen destino = almacenDeRetorno(desde, almacenes);
+        Ubicacion llegadaEn = (destino != null) ? destino.getUbicacion() : new Ubicacion(27, 14);
+        LocalDateTime salida = finEntregas();
+        LocalDateTime llegada = (destino != null) ? horaLlegadaAlmacen(destino) : instante;
+
+        if (instante != null && llegada != null && instante.isBefore(llegada) && desde != null && u != null) {
+            long total = java.time.Duration.between(salida, llegada).getSeconds();
+            long transcurrido = Math.max(0, java.time.Duration.between(salida, instante).getSeconds());
+            double f = total > 0 ? Math.min(1.0, (double) transcurrido / total) : 1.0;
+            u.setUbicacionActual(enL(desde, llegadaEn, f));
+            return false;
+        }
+        estado = EstadoRuta.COMPLETADA;
+        if (u != null) {
+            u.setUbicacionActual(new Ubicacion(llegadaEn.getPosX(), llegadaEn.getPosY()));
+            if (u.getEstadoOperativo() == com.paqrap.logistics.flota.model.EstadoOperativo.EN_RUTA) {
+                u.setEstadoOperativo(com.paqrap.logistics.flota.model.EstadoOperativo.DISPONIBLE);
+            }
+        }
+        return true;
+    }
+
+    /** Punto a una fracción f del recorrido en L (primero en X, luego en Y) entre dos esquinas. */
+    static Ubicacion enL(Ubicacion a, Ubicacion b, double f) {
+        int dx = b.getPosX() - a.getPosX();
+        int dy = b.getPosY() - a.getPosY();
+        double total = Math.abs(dx) + Math.abs(dy);
+        if (total == 0) return new Ubicacion(a.getPosX(), a.getPosY());
+        double recorrido = f * total;
+        if (recorrido <= Math.abs(dx)) {
+            return new Ubicacion((int) Math.round(a.getPosX() + Math.signum(dx) * recorrido), a.getPosY());
+        }
+        return new Ubicacion(b.getPosX(), (int) Math.round(a.getPosY() + Math.signum(dy) * (recorrido - Math.abs(dx))));
     }
 
     private static boolean esAnterior(Ruta a, Ruta b) {
