@@ -26,7 +26,7 @@ export const rutasApi = {
   async listar(): Promise<RutaApi[]> {
     try {
       const response = await apiClient.get<RutaApi[]>('/api/planificacion/rutas');
-      return response.data;
+      return Array.isArray(response.data) ? response.data : [];
     } catch {
       return [];
     }

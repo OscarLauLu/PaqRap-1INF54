@@ -4,6 +4,48 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#eff4fd',
+                100: '#dde2ff',
+                500: '#3751ff',
+                600: '#2d42e0',
+                700: '#2434b8',
+              },
+              ink: {
+                900: '#252733',
+                700: '#616369',
+                500: '#696a6f',
+                400: '#9fa2b4',
+                300: '#c5c7cd',
+              },
+              line: {
+                200: '#dfe0eb',
+              },
+              surface: {
+                50: '#f7f8fc',
+              },
+              semaforo: {
+                verde: '#34c759',
+                ambar: '#ffcc00',
+                rojo: '#ff383c',
+              },
+            },
+            fontFamily: {
+              sans: ['Mulish', 'system-ui', '-apple-system', 'sans-serif'],
+            },
+          },
+        },
+      }
+    </script>
     <title>PAQRAP - Simulación 5D</title>
   </head>
   <body>

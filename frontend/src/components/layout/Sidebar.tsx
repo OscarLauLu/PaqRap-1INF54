@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           contraido ? 'justify-center px-0' : 'px-6'
         }`}
       >
-        <div className="w-8 h-8 shrink-0 rounded-full bg-(--color-brand-500) flex items-center justify-center text-white font-bold shadow-sm shadow-blue-400/30">
+        <div className="w-8 h-8 shrink-0 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold shadow-sm shadow-blue-400/30">
           <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2L2 22h20L12 2zm0 4.5l6.5 13H5.5L12 6.5z" />
           </svg>

@@ -404,9 +404,11 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   // En el mapa se dibujan los pedidos ya asignados a un vehículo: planificados, en ruta, o que
   // figuran como parada pendiente de alguna ruta. Así toda línea de ruta termina en un punto.
   // (El panel derecho sigue contando todos los pedidos.)
-  const codigosEnRuta = new Set(rutas.flatMap((r) => r.codigosPedidos ?? []));
-  const pedidosVisibles = pedidos.filter(
-    (p) => p.destino && (p.estado === 'PLANIFICADO' || p.estado === 'EN_RUTA' || codigosEnRuta.has(p.codigo)),
+  const listaRutas = Array.isArray(rutas) ? rutas : [];
+  const listaPedidos = Array.isArray(pedidos) ? pedidos : [];
+  const codigosEnRuta = new Set(listaRutas.flatMap((r) => r.codigosPedidos ?? []));
+  const pedidosVisibles = listaPedidos.filter(
+    (p) => p && p.destino && (p.estado === 'PLANIFICADO' || p.estado === 'EN_RUTA' || codigosEnRuta.has(p.codigo)),
   );
 
   // La matriz tiene 70 de ancho por 50 de alto: 1 unidad SVG = 1 km.
@@ -418,7 +420,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   // está dibujado hasta su nueva posición, en el mismo tiempo que tarda la siguiente consulta.
   useLayoutEffect(() => {
     const ahora = performance.now();
-    unidades.forEach((u) => {
+    (Array.isArray(unidades) ? unidades : []).forEach((u) => {
       const t = trazados.get(u.codigo);
       if (!t || u.estadoOperativo === 'AVERIADO') {
         animaciones.current.delete(u.codigo);
@@ -730,8 +732,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
         })}
 
         {/* Bloqueos de calle activos: tramo en negro con una barrera al medio */}
-        {bloqueos
-          .filter((b) => b.activo)
+        {(Array.isArray(bloqueos) ? bloqueos : [])
+          .filter((b) => b && b.activo)
           .map((b) => {
             const pts = parsePuntos(b.coordenadasNodos);
             if (pts.length < 2) return null;

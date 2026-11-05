@@ -15,7 +15,7 @@ export const mapaApi = {
   async obtenerPedidos(): Promise<Pedido[]> {
     try {
       const response = await apiClient.get<Pedido[]>('/api/mapa/pedidos');
-      return response.data;
+      return Array.isArray(response.data) ? response.data : INITIAL_PEDIDOS;
     } catch {
       return INITIAL_PEDIDOS;
     }

@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
-# Instalar pnpm globalmente
-RUN npm install -g pnpm
+# Instalar pnpm y librerías de compatibilidad glibc para binarios nativos en Alpine
+RUN apk add --no-cache libc6-compat && npm install -g pnpm
 
 # Establecer directorio de trabajo
 WORKDIR /app

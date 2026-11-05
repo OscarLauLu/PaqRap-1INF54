@@ -1,8 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
-/* Tokens de diseño PaqRap (alineados al Figma del equipo: grayscale + accent + semáforo). */
 @theme {
+  --font-sans: 'Mulish', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-brand-50: #eff4fd;
+  --color-brand-100: #dde2ff;
+  --color-brand-500: #3751ff;
+  --color-brand-600: #2d42e0;
+  --color-brand-700: #2434b8;
+
+  --color-ink-900: #252733;
+  --color-ink-700: #616369;
+  --color-ink-500: #696a6f;
+  --color-ink-400: #9fa2b4;
+  --color-ink-300: #c5c7cd;
+  --color-line-200: #dfe0eb;
+  --color-surface-50: #f7f8fc;
+
+  --color-semaforo-verde: #34c759;
+  --color-semaforo-ambar: #ffcc00;
+  --color-semaforo-rojo: #ff383c;
+}
+
+:root {
   --font-sans: 'Mulish', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   --color-brand-50: #eff4fd;
@@ -38,4 +58,28 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* Reglas directas para que toda clase -(...) funcione de inmediato en cualquier navegador */
+[class*="bg-(--color-surface-50)"], .bg-surface-50 { background-color: #f7f8fc !important; }
+[class*="bg-(--color-brand-50)"], .bg-brand-50 { background-color: #eff4fd !important; }
+[class*="bg-(--color-brand-100)"], .bg-brand-100 { background-color: #dde2ff !important; }
+[class*="bg-(--color-brand-500)"], .bg-brand-500 { background-color: #3751ff !important; }
+[class*="bg-(--color-brand-600)"], .bg-brand-600 { background-color: #2d42e0 !important; }
+[class*="bg-(--color-brand-700)"], .bg-brand-700 { background-color: #2434b8 !important; }
+
+[class*="text-(--color-ink-900)"], .text-ink-900 { color: #252733 !important; }
+[class*="text-(--color-ink-700)"], .text-ink-700 { color: #616369 !important; }
+[class*="text-(--color-ink-500)"], .text-ink-500 { color: #696a6f !important; }
+[class*="text-(--color-ink-400)"], .text-ink-400 { color: #9fa2b4 !important; }
+[class*="text-(--color-ink-300)"], .text-ink-300 { color: #c5c7cd !important; }
+[class*="text-(--color-brand-500)"], .text-brand-500 { color: #3751ff !important; }
+[class*="text-(--color-brand-700)"], .text-brand-700 { color: #2434b8 !important; }
+[class*="text-(--color-semaforo-verde)"], .text-semaforo-verde { color: #34c759 !important; }
+[class*="text-(--color-semaforo-ambar)"], .text-semaforo-ambar { color: #ffcc00 !important; }
+[class*="text-(--color-semaforo-rojo)"], .text-semaforo-rojo { color: #ff383c !important; }
+
+[class*="border-(--color-line-200)"], .border-line-200 { border-color: #dfe0eb !important; }
+[class*="border-(--color-brand-500)"], .border-brand-500 { border-color: #3751ff !important; }
+[class*="border-(--color-ink-300)"], .border-ink-300 { border-color: #c5c7cd !important; }
+
 

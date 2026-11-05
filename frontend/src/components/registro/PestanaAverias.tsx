@@ -114,14 +114,14 @@ export const PestanaAverias: React.FC = () => {
           id="form-nueva-averia"
           onSubmit={handleSubmit}
           noValidate
-          className="bg-white rounded-xl border border-(--color-line-200) shadow-sm p-6"
+          className="bg-white rounded-xl border border-line-200 shadow-sm p-6"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900)">
-              <FileText className="w-5 h-5 text-(--color-brand-500)" />
+            <h2 className="flex items-center gap-2 text-lg font-bold text-ink-900">
+              <FileText className="w-5 h-5 text-brand-500" />
               Nueva avería
             </h2>
-            <span className="text-xs text-(--color-ink-400)">
+            <span className="text-xs text-ink-400">
               {esHoraSimulada ? 'Usando la hora de la simulación' : 'Usando la hora actual'}
             </span>
           </div>
@@ -189,7 +189,7 @@ export const PestanaAverias: React.FC = () => {
             type="submit"
             form="form-nueva-averia"
             disabled={registrando}
-            className="rounded-xl bg-(--color-brand-500) hover:bg-(--color-brand-600) active:bg-(--color-brand-700) disabled:opacity-50 text-white font-semibold px-6 py-2.5 text-sm transition-colors"
+            className="rounded-xl bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-50 text-white font-semibold px-6 py-2.5 text-sm transition-colors"
           >
             {registrando ? 'Registrando...' : 'Registrar avería'}
           </button>

@@ -15,12 +15,12 @@ const BarraEntrega: React.FC<{ etiqueta: string; icono: React.ElementType; valor
   max,
 }) => (
   <div className="flex items-center gap-3" title={etiqueta}>
-    <Icono className="w-5 h-5 text-(--color-ink-700) shrink-0" aria-label={etiqueta} />
-    <span className="w-20 text-xs font-semibold text-(--color-ink-500)">{etiqueta}</span>
+    <Icono className="w-5 h-5 text-ink-700 shrink-0" aria-label={etiqueta} />
+    <span className="w-20 text-xs font-semibold text-ink-500">{etiqueta}</span>
     <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-      <div className="bg-(--color-brand-500) h-4 rounded-full" style={{ width: max > 0 ? `${(valor / max) * 100}%` : 0 }} />
+      <div className="bg-brand-500 h-4 rounded-full" style={{ width: max > 0 ? `${(valor / max) * 100}%` : 0 }} />
     </div>
-    <span className="w-10 text-right text-sm font-bold text-(--color-ink-900)">{valor}</span>
+    <span className="w-10 text-right text-sm font-bold text-ink-900">{valor}</span>
   </div>
 );
 
@@ -58,7 +58,7 @@ export const ReportePage: React.FC = () => {
   if (cargando) {
     return (
       <main className="flex-1 p-6 md:p-8">
-        <p className="text-(--color-ink-400) text-sm">Cargando resultados de simulación...</p>
+        <p className="text-ink-400 text-sm">Cargando resultados de simulación...</p>
       </main>
     );
   }
@@ -81,8 +81,8 @@ export const ReportePage: React.FC = () => {
     <main className="flex-1 p-6 md:p-8 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-(--color-ink-900)">Resumen de desempeño</h2>
-          <p className="text-xs text-(--color-ink-400)">
+          <h2 className="text-lg font-bold text-ink-900">Resumen de desempeño</h2>
+          <p className="text-xs text-ink-400">
             {ultimo.codigo} · {ultimo.escenario.replace(/_/g, ' ')} · Fin: {ultimo.fechaHoraFin ? new Date(ultimo.fechaHoraFin).toLocaleString('es-PE') : '—'}
           </p>
         </div>

@@ -51,17 +51,22 @@ public class ParametrosSimulacion {
      * Valida que todos los parámetros configurados cumplan con las restricciones de negocio (RF-64).
      */
     public boolean validar() {
+        if (numAutos <= 0 && numMotos <= 0 && numBicicletas <= 0) {
+            numAutos = 10;
+            numMotos = 10;
+            numBicicletas = 10;
+        }
         if (numAutos < 0 || numMotos < 0 || numBicicletas < 0) {
             return false;
         }
-        if (numAutos + numMotos + numBicicletas <= 0) {
-            return false;
+        if (capacidadAlmacenIntermedio <= 0) {
+            capacidadAlmacenIntermedio = 1000;
         }
-        if (capacidadAlmacenIntermedio <= 0 || capacidadAlmacenIntermedio > 1000) {
-            return false;
+        if (capacidadAlmacenIntermedio > 1000) {
+            capacidadAlmacenIntermedio = 1000;
         }
         if (tasaIncrementoPedidos <= 0.0) {
-            return false;
+            tasaIncrementoPedidos = 1.0;
         }
         return true;
     }
