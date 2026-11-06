@@ -111,7 +111,7 @@ public class SimulacionController {
         if (sesion != null) {
             sessionManager.cambiarVelocidadSesion(sesion, factor);
         } else {
-            relojSimulado.setFactorAceleracion(factor);
+            motorSimulacion.cambiarVelocidad(factor);
         }
         return ResponseEntity.ok("Velocidad actualizada a " + factor + "x");
     }
