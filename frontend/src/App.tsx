@@ -61,6 +61,36 @@ export const App: React.FC = () => {
   const { unidades, selectedUnidadCodigo, setSelectedUnidadCodigo } = useFlota(4000);
   const { pedidos } = useMapaOperaciones(4000);
   const { metricas } = useMetricas(5000);
+  const [selectedAlmacenCodigo, setSelectedAlmacenCodigo] = useState<string | null>(null);
+
+  // Reloj en tiempo real presente y tiempo transcurrido real (reloj de pared)
+  const [relojReal, setRelojReal] = useState<Date>(() => new Date());
+  const [tiempoInicioReal] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setRelojReal(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const getTranscurridoReal = () => {
+    const seg = Math.max(0, Math.floor((Date.now() - tiempoInicioReal) / 1000));
+    const min = Math.floor(seg / 60);
+    const s = seg % 60;
+    return min > 0 ? `${min} min ${s} s` : `${s} s`;
+  };
+
+  // Indicadores Globales de Ocupación de Flota y Almacenes (Sí3)
+  const totalCargaFlota = unidades.reduce((acc, u) => acc + (u.cargaActual || 0), 0);
+  const totalCapacidadFlota = unidades.reduce((acc, u) => acc + (u.capacidadMaxima || 0), 0);
+  const pctOcupacionFlota = totalCapacidadFlota > 0 ? Math.round((totalCargaFlota / totalCapacidadFlota) * 100) : 0;
+  const semFlota = pctOcupacionFlota === 0 ? 'VACIO' : pctOcupacionFlota <= 50 ? 'VERDE' : pctOcupacionFlota <= 85 ? 'AMBAR' : 'ROJO';
+  const semFlotaColor = semFlota === 'ROJO' ? '#EF4444' : semFlota === 'AMBAR' ? '#F59E0B' : semFlota === 'VERDE' ? '#22C55E' : '#9CA3AF';
+
+  const almsIntermedios = almacenes.filter((a) => a.tipo !== 'CENTRAL');
+  const stockTotalAlms = almsIntermedios.reduce((acc, a) => acc + (a.stockActual || 0), 0);
+  const capTotalAlms = almsIntermedios.reduce((acc, a) => acc + (a.capacidadMaxima || 1000), 0);
+  const pctOcupacionAlms = capTotalAlms > 0 ? Math.round((stockTotalAlms / capTotalAlms) * 100) : 0;
+  const semAlms = pctOcupacionAlms === 0 ? 'VACIO' : pctOcupacionAlms <= 50 ? 'VERDE' : pctOcupacionAlms <= 85 ? 'AMBAR' : 'ROJO';
+  const semAlmsColor = semAlms === 'ROJO' ? '#EF4444' : semAlms === 'AMBAR' ? '#F59E0B' : semAlms === 'VERDE' ? '#22C55E' : '#9CA3AF';
 
   // Bloqueos para dibujarlos en el mapa (el mapa solo muestra los que están activos ahora)
   const [bloqueos, setBloqueos] = useState<BloqueoVial[]>([]);
@@ -333,21 +363,50 @@ export const App: React.FC = () => {
         {/* Una sola pantalla para la Operación día a día y para las simulaciones (5D y colapso) */}
         {activeSection === 'simulacion' && (
           <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
-            {/* Barra superior (sin tarjeta: va directo sobre el fondo, como el mockup) */}
-            <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-sm">
-              <div className="flex flex-wrap items-center gap-x-10 gap-y-2">
+            {/* Barra superior con 4 tiempos e indicadores globales con semáforo (Sí3) */}
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-xs md:text-sm">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                {/* Momento simulado */}
                 <div className="text-ink-400 font-semibold">
-                  Fecha: <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
+                  Simulado: <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
                 </div>
 
                 <div className="flex items-center text-ink-400 font-semibold">
-                  <ClockIcon className="w-4 h-4 mr-1.5" /> Tiempo transcurrido:
+                  <ClockIcon className="w-4 h-4 mr-1 text-brand-500" /> Transcurrido:
                   <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
                 </div>
+
                 <div className="text-ink-400 font-semibold">
                   Día: <span className="text-ink-900 font-bold ml-1">{diaActual}</span>
                 </div>
-                {/* La operación diaria corriendo se marca "En vivo"; cualquier escenario en pausa, "En pausa" */}
+
+                {/* Momento real presente (reloj de pared) */}
+                <div className="text-ink-400 font-semibold border-l border-gray-200 pl-4">
+                  Hora real: <span className="text-ink-900 font-bold ml-1">{relojReal.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                  <span className="text-gray-400 font-normal ml-1">({getTranscurridoReal()})</span>
+                </div>
+
+                {/* Indicador Global 1: Ocupación Flota de UTs con semáforo (Sí3) */}
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border bg-white text-xs font-semibold shadow-2xs"
+                  title={`Carga total de la flota: ${totalCargaFlota}/${totalCapacidadFlota} paquetes (${pctOcupacionFlota}%)`}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: semFlotaColor }} />
+                  <span className="text-gray-500 font-medium">Flota:</span>
+                  <span className="font-bold text-(--color-ink-900)">{pctOcupacionFlota}%</span>
+                </div>
+
+                {/* Indicador Global 2: Ocupación Almacenes con semáforo (Sí3) */}
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border bg-white text-xs font-semibold shadow-2xs"
+                  title={`Stock total en almacenes intermedios: ${stockTotalAlms}/${capTotalAlms} u (${pctOcupacionAlms}%)`}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: semAlmsColor }} />
+                  <span className="text-gray-500 font-medium">Almacenes:</span>
+                  <span className="font-bold text-(--color-ink-900)">{pctOcupacionAlms}%</span>
+                </div>
+
+                {/* Estados */}
                 {esOperacion && motorCorriendo && (
                   <span className="flex items-center gap-1.5 rounded-full bg-green-50 border border-green-200 px-2.5 py-0.5 text-xs font-bold text-green-700">
                     <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" aria-hidden="true" />
@@ -430,7 +489,7 @@ export const App: React.FC = () => {
             <div className="flex-1 min-h-0">
               <div className="relative h-full overflow-hidden rounded-xl">
                 <div className="absolute inset-0 flex">
-                  {/* Mapa: se achica cuando el panel está abierto (en pantallas grandes el panel es más ancho) */}
+                  {/* Mapa: se achica cuando el panel está abierto */}
                   <div
                     className={`h-full shrink-0 transition-[width] duration-300 ease-in-out ${
                       panelAbierto ? 'w-[calc(100%-21rem)] 2xl:w-[calc(100%-24rem)]' : 'w-full'
@@ -444,6 +503,8 @@ export const App: React.FC = () => {
                       rutas={sinDatos ? [] : rutasMapa}
                       selectedUnidadCodigo={selectedUnidadCodigo}
                       onSelectUnidad={setSelectedUnidadCodigo}
+                      selectedAlmacenCodigo={selectedAlmacenCodigo}
+                      onSelectAlmacen={setSelectedAlmacenCodigo}
                       escenario={NOMBRE_ESCENARIO[escenarioSel]}
                       pausado={estaPausada}
                       reloj={{
@@ -465,6 +526,10 @@ export const App: React.FC = () => {
                       pedidos={sinDatos ? [] : pedidos}
                       metricas={metricas}
                       selectedUnidadCodigo={selectedUnidadCodigo}
+                      selectedAlmacenCodigo={selectedAlmacenCodigo}
+                      onSelectUnidad={setSelectedUnidadCodigo}
+                      onSelectAlmacen={setSelectedAlmacenCodigo}
+                      rutas={rutasMapa}
                       modo={esOperacion ? 'operacion' : 'simulacion'}
                       filtros={filtros}
                       onCambiarFiltros={setFiltros}
