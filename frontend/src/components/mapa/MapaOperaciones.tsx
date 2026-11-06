@@ -3,7 +3,7 @@ import { Almacen, BloqueoVial, Pedido, Ubicacion, UnidadTransporte } from '../..
 import { Info, Maximize2, Minus, Plus, X } from 'lucide-react';
 import { LeyendaMapa } from './LeyendaMapa';
 import { Bodega, PinPedido, VehiculoRealista } from './IconosMapa';
-import { pasaFiltroAlmacen, pasaFiltroUnidad, type FiltrosPanel } from '../../hooks/filtros';
+import { pasaFiltroAlmacen, pasaFiltroUnidad, nivelSemaforoAlmacen, nivelSemaforoUT, type FiltrosPanel } from '../../hooks/filtros';
 import { parsearFechaLocal } from '../../utils/fechaLocal';
 import { averiasApi } from '../../api/averiasApi';
 import { crearHorario, distanciaEn, sinAlimentacion, suavizarReloj, type Horario, type HorarioRuta } from './movimiento';
@@ -44,6 +44,8 @@ interface MapaOperacionesProps {
   rutas?: RutaMapa[];
   selectedUnidadCodigo: string | null;
   onSelectUnidad: (codigo: string) => void;
+  selectedAlmacenCodigo?: string | null;
+  onSelectAlmacen?: (codigo: string) => void;
   /** Nombre del escenario para el título de la leyenda (opcional) */
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
@@ -249,6 +251,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   rutas = [],
   selectedUnidadCodigo,
   onSelectUnidad,
+  selectedAlmacenCodigo,
+  onSelectAlmacen,
   escenario,
   pausado = false,
   reloj,
@@ -1015,13 +1019,35 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           );
         })}
 
-        {/* Almacenes: bodega con su letra */}
+        {/* Almacenes: bodega con su letra, semáforo de ocupación y texto de stock */}
         {almacenes.filter((alm) => pasaFiltroAlmacen(alm, filtros)).map((alm) => {
           const ax = toSvgX(alm.ubicacion.posX);
           const ay = toSvgY(alm.ubicacion.posY);
           const esNoroeste = /n[-\s]?o/i.test(alm.nombre) || alm.nombre.toLowerCase().includes('norte');
           const letra = alm.tipo === 'CENTRAL' ? 'C' : esNoroeste ? 'N' : 'E';
           const color = alm.tipo === 'CENTRAL' ? COLOR_ALMACEN.central : esNoroeste ? COLOR_ALMACEN.norte : COLOR_ALMACEN.este;
+          const isCentral = alm.tipo === 'CENTRAL';
+          const capAlm = alm.capacidadMaxima || 1000;
+          const stockAlm = alm.stockActual ?? (isCentral ? 9999 : 0);
+          const pctAlm = isCentral ? 100 : Math.min(100, Math.round((stockAlm / capAlm) * 100));
+          const semAlm = nivelSemaforoAlmacen(alm);
+          const semAlmColor = isCentral
+            ? '#EA580C'
+            : semAlm === 'ROJO'
+            ? '#EF4444'
+            : semAlm === 'AMBAR'
+            ? '#F59E0B'
+            : semAlm === 'VERDE'
+            ? '#22C55E'
+            : '#9CA3AF';
+
+          const esSel =
+            (seleccion?.tipo === 'almacen' && seleccion.codigo === alm.codigo) ||
+            selectedAlmacenCodigo === alm.codigo;
+
+          const tooltip = isCentral
+            ? `${alm.nombre} · Stock Ilimitado`
+            : `${alm.nombre} · Stock: ${stockAlm}/${capAlm} u (${pctAlm}%) · Semáforo: ${semAlm}`;
 
           return (
             <g
@@ -1029,15 +1055,45 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               data-sel={`almacen:${alm.codigo}`}
               transform={`translate(${ax}, ${ay})`}
               className="cursor-pointer"
-              onClick={(e) => clicIcono(e, { tipo: 'almacen', codigo: alm.codigo })}
+              onClick={(e) => {
+                onSelectAlmacen?.(alm.codigo);
+                clicIcono(e, { tipo: 'almacen', codigo: alm.codigo });
+              }}
             >
-              <title>{alm.nombre}</title>
-              {seleccion?.tipo === 'almacen' && seleccion.codigo === alm.codigo && (
-                <circle r={TAMANO_ICONO * 1.05} fill="none" stroke="#60A5FA" strokeWidth="0.15" className="animate-pulse" />
+              <title>{tooltip}</title>
+              {esSel && (
+                <circle r={TAMANO_ICONO * 1.15} fill="none" stroke="#60A5FA" strokeWidth="0.18" className="animate-pulse" />
               )}
               <g transform={`scale(${ESCALA_BODEGA})`} filter="url(#sombraIcono)">
                 <Bodega color={color} letra={letra} />
               </g>
+
+              {/* Indicador visual de semáforo de ocupación del almacén */}
+              {!isCentral && (
+                <circle
+                  cx={TAMANO_ICONO * 0.55}
+                  cy={-TAMANO_ICONO * 0.55}
+                  r={0.25}
+                  fill={semAlmColor}
+                  stroke="#FFFFFF"
+                  strokeWidth="0.08"
+                />
+              )}
+
+              {/* Etiqueta de stock debajo del almacén */}
+              <text
+                y={TAMANO_ICONO * 0.8 + 0.35}
+                textAnchor="middle"
+                fontSize="0.45"
+                fontWeight="bold"
+                fill="#1F2937"
+                stroke="white"
+                strokeWidth="0.15"
+                paintOrder="stroke"
+                className="select-none"
+              >
+                {isCentral ? '∞' : `${stockAlm}u (${pctAlm}%)`}
+              </text>
             </g>
           );
         })}
@@ -1065,7 +1121,21 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               const uy = toSvgY(gy) + desp * Math.sin(a);
 
               const averiado = u.estadoOperativo === 'AVERIADA';
-              const isSelected = seleccion?.tipo === 'vehiculo' && seleccion.codigo === u.codigo;
+              const isSelected =
+                (seleccion?.tipo === 'vehiculo' && seleccion.codigo === u.codigo) ||
+                selectedUnidadCodigo === u.codigo;
+
+              const capU = u.capacidadMaxima || 1;
+              const pctU = Math.min(100, Math.round((u.cargaActual / capU) * 100));
+              const semU = nivelSemaforoUT(u);
+              const semUColor =
+                semU === 'ROJO'
+                  ? '#EF4444'
+                  : semU === 'AMBAR'
+                  ? '#F59E0B'
+                  : semU === 'VERDE'
+                  ? '#22C55E'
+                  : '#9CA3AF';
 
               // "En movimiento" si el backend lo marca en ruta, si tiene una ruta pendiente o si se movió
               const prev = memoriaMov.current.get(u.codigo);
@@ -1085,6 +1155,9 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
 
               // Con ruta: posición y giro los pone la animación. Sin ruta: se ubica directo.
               const sobreRuta = trazados.has(u.codigo) && !averiado;
+              const tooltipU = `${u.tipoNombre} ${u.codigo} · Carga: ${u.cargaActual}/${capU} (${pctU}%) · Semáforo: ${semU}${
+                averiado ? ' · averiado' : enMovimiento ? ' · en ruta' : ' · detenido'
+              }`;
 
               elementos.push(
                 // 1) Grupo exterior: se desplaza
@@ -1102,8 +1175,18 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                   className="cursor-pointer"
                   transform={sobreRuta ? undefined : `translate(${ux} ${uy})`}
                 >
-                  <title>{`${u.tipoNombre} ${u.codigo}${averiado ? ' · averiado' : enMovimiento ? ' · en ruta' : ' · detenido'}`}</title>
-                  {isSelected && <circle r={TAMANO_ICONO * 0.8} fill="none" stroke="#60A5FA" strokeWidth="0.15" className="animate-pulse" />}
+                  <title>{tooltipU}</title>
+                  {isSelected && <circle r={TAMANO_ICONO * 0.85} fill="none" stroke="#60A5FA" strokeWidth="0.16" className="animate-pulse" />}
+
+                  {/* Badge semáforo de ocupación de la UT */}
+                  <circle
+                    cx={-TAMANO_ICONO * 0.45}
+                    cy={-TAMANO_ICONO * 0.45}
+                    r={0.2}
+                    fill={semUColor}
+                    stroke="#FFFFFF"
+                    strokeWidth="0.06"
+                  />
 
                   {/* 2) Grupo interior: gira sobre el centro del vehículo (el eje Y del SVG va hacia abajo,
                       por eso el signo negativo). Sobre ruta, el giro lo pone la animación según la calle */}
@@ -1140,11 +1223,11 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                     );
                   })()}
 
-                  {/* 3) Código del vehículo: se desplaza con él pero no gira, así siempre se lee derecho */}
+                  {/* 3) Código del vehículo y ocupación: se desplaza con él pero no gira, así siempre se lee derecho */}
                   <text
                     y={TAMANO_ICONO * 0.75 + 0.35}
                     textAnchor="middle"
-                    fontSize="0.45"
+                    fontSize="0.42"
                     fontWeight="bold"
                     fill="#1F2937"
                     stroke="white"
@@ -1152,7 +1235,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
                     paintOrder="stroke"
                     className="select-none"
                   >
-                    {u.codigo}
+                    {`${u.codigo} (${pctU}%)`}
                   </text>
                 </g>,
               );

@@ -4,9 +4,11 @@ import { RelojSimuladoData, Almacen, UnidadTransporte, Pedido, MetricasSimulacio
 import type { TipoAveria } from '../../types/registro';
 import { averiasApi } from '../../api/averiasApi';
 import { formatFechaHora, parseUbicacion } from '../registro/utils';
-import { Eye, EyeOff, Layers } from 'lucide-react';
+import { Eye, EyeOff, Layers, Warehouse } from 'lucide-react';
 import { Bodega, VehiculoRealista } from '../mapa/IconosMapa';
-import { FILTROS_VACIOS, alternarCapa, capaAlmacen, type CapaMapa, type FiltrosPanel } from '../../hooks/filtros';
+import { FILTROS_VACIOS, alternarCapa, capaAlmacen, type CapaMapa, type FiltrosPanel, type SemaforoUT } from '../../hooks/filtros';
+import { ListaUnidadesPanel } from './ListaUnidadesPanel';
+import { ListaAlmacenesPanel } from './ListaAlmacenesPanel';
 
 const TIPOS_AVERIA: { valor: TipoAveria; etiqueta: string }[] = [
   { valor: 'TIPO_1', etiqueta: 'Tipo 1 — 2 h en el lugar' },
@@ -26,6 +28,10 @@ interface RightPanelProps {
   pedidos: Pedido[];
   metricas: MetricasSimulacion;
   selectedUnidadCodigo: string | null;
+  selectedAlmacenCodigo?: string | null;
+  onSelectUnidad?: (codigo: string) => void;
+  onSelectAlmacen?: (codigo: string) => void;
+  rutas?: Array<{ unidadCodigo: string; codigosPedidos?: string[] }>;
   filtros?: FiltrosPanel;
   onCambiarFiltros?: (filtros: FiltrosPanel) => void;
   /**
@@ -167,7 +173,20 @@ const campo = (obj: object, nombres: string[]): unknown => {
 
 const formatSoles = (valor: number) => `S/ ${valor.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, pedidos, metricas, filtros: filtrosProp, onCambiarFiltros }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({
+  reloj,
+  almacenes,
+  unidades,
+  pedidos,
+  metricas,
+  selectedUnidadCodigo,
+  selectedAlmacenCodigo = null,
+  onSelectUnidad = () => {},
+  onSelectAlmacen = () => {},
+  rutas = [],
+  filtros: filtrosProp,
+  onCambiarFiltros,
+}) => {
   // El detalle de cada vehículo, almacén y pedido se ve en el mapa: al hacer clic en su ícono se abre un popup.
   // Tarjetas abiertas (pueden ser varias). Al inicio solo "Mostrar en el mapa".
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set(['mapa']));
@@ -346,6 +365,32 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
             })}
           </div>
         </div>
+
+        {/* Filtro global por semáforo de ocupación de UT (Sí3) */}
+        <div className="pt-2.5 mt-2.5 border-t border-gray-100">
+          <span className="block text-[11px] font-bold text-(--color-ink-500) mb-1.5 uppercase tracking-wide">
+            Filtrar unidades por semáforo de carga
+          </span>
+          <div className="flex items-center gap-1">
+            {(['TODOS', 'VACIO', 'VERDE', 'AMBAR', 'ROJO'] as const).map((sem) => {
+              const activo = (filtros.semaforoUT ?? 'TODOS') === sem;
+              return (
+                <button
+                  key={sem}
+                  type="button"
+                  onClick={() => setFiltros({ ...filtros, semaforoUT: sem })}
+                  className={`flex-1 py-1 rounded text-[11px] font-bold border transition-colors ${
+                    activo
+                      ? 'bg-(--color-brand-500) text-white border-(--color-brand-500)'
+                      : 'bg-white text-(--color-ink-700) border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {sem === 'TODOS' ? 'Todos' : sem === 'VACIO' ? 'Vacío' : sem === 'VERDE' ? 'Bajo' : sem === 'AMBAR' ? 'Medio' : 'Lleno'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </Tarjeta>
 
       {/* Registrar avería: en la operación diaria y en las simulaciones, porque las averías ocurren en plena marcha */}
@@ -470,33 +515,58 @@ export const RightPanel: React.FC<RightPanelProps> = ({ almacenes, unidades, ped
         )}
       </Tarjeta>
 
-      {/* ===== Vehículos: estado de la flota por tipo ===== */}
-      <Tarjeta titulo="Vehículos" Icono={CarIcon} abierta={abiertas.has('vehiculos')} onToggle={() => toggleSection('vehiculos')}>
-        <table className="w-full text-[13px] text-(--color-ink-500) text-center">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left py-1 font-semibold"></th>
-              <th className="py-1 font-semibold">Disponible</th>
-              <th className="py-1 font-semibold">En ruta</th>
-              <th className="py-1 font-semibold">Averiada</th>
-              <th className="py-1 font-bold text-(--color-ink-900)">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {([
-              ['Auto', 'Autos', aCount],
-              ['Moto', 'Motos', mCount],
-              ['Bicicleta', 'Bicicletas', bCount],
-            ] as const).map(([tipo, etiqueta, c], i) => (
-              <tr key={tipo} className={i < 2 ? 'border-b border-gray-50' : ''}>
-                <td className="text-left py-1.5" title={etiqueta}>
-                  <MiniVehiculo tipo={tipo} color={CAPAS_VEHICULO.find(v => v.tipo === tipo)?.color ?? '#64748B'} />
-                </td>
-                <td>{c.disp}</td><td>{c.ruta}</td><td>{c.ave}</td><td className="font-bold text-(--color-ink-900)">{c.tot}</td>
+      {/* ===== Vehículos: resumen y lista detallada de UT con semáforo y pedidos ===== */}
+      <Tarjeta titulo={`Unidades de Transporte (${unidades.length})`} Icono={CarIcon} abierta={abiertas.has('vehiculos')} onToggle={() => toggleSection('vehiculos')}>
+        <div className="space-y-3">
+          <table className="w-full text-[13px] text-(--color-ink-500) text-center">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left py-1 font-semibold"></th>
+                <th className="py-1 font-semibold">Disponible</th>
+                <th className="py-1 font-semibold">En ruta</th>
+                <th className="py-1 font-semibold">Averiada</th>
+                <th className="py-1 font-bold text-(--color-ink-900)">Total</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {([
+                ['Auto', 'Autos', aCount],
+                ['Moto', 'Motos', mCount],
+                ['Bicicleta', 'Bicicletas', bCount],
+              ] as const).map(([tipo, etiqueta, c], i) => (
+                <tr key={tipo} className={i < 2 ? 'border-b border-gray-50' : ''}>
+                  <td className="text-left py-1.5" title={etiqueta}>
+                    <MiniVehiculo tipo={tipo} color={CAPAS_VEHICULO.find(v => v.tipo === tipo)?.color ?? '#64748B'} />
+                  </td>
+                  <td>{c.disp}</td><td>{c.ruta}</td><td>{c.ave}</td><td className="font-bold text-(--color-ink-900)">{c.tot}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="pt-2 border-t border-gray-100">
+            <ListaUnidadesPanel
+              unidades={unidades}
+              pedidos={pedidos}
+              rutas={rutas}
+              selectedUnidadCodigo={selectedUnidadCodigo}
+              onSelectUnidad={onSelectUnidad}
+              filtroSemaforo={filtros.semaforoUT}
+              onCambiarFiltroSemaforo={(sem) => setFiltros({ ...filtros, semaforoUT: sem })}
+            />
+          </div>
+        </div>
+      </Tarjeta>
+
+      {/* ===== Almacenes: Lista detallada con stock, semáforo y flujos de 4h ===== */}
+      <Tarjeta titulo="Almacenes e Inventario" Icono={Warehouse} abierta={abiertas.has('almacenes')} onToggle={() => toggleSection('almacenes')}>
+        <ListaAlmacenesPanel
+          almacenes={almacenes}
+          pedidos={pedidos}
+          reloj={reloj}
+          selectedAlmacenCodigo={selectedAlmacenCodigo}
+          onSelectAlmacen={onSelectAlmacen}
+        />
       </Tarjeta>
 
       {/* ===== Incidencias ===== */}
