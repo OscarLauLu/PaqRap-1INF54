@@ -128,6 +128,8 @@ public class MotorSimulacion {
     // Último bloque de tiempo simulado en el que se planificó: evita planificar muchas veces dentro
     // del mismo minuto en tiempo real (a 1x, el minuto 0 dura 60 s y el ciclo pasa por él 120 veces)
     private LocalDateTime ultimaHoraPlanificada;
+    @Getter
+    private double factorBase = 1.0;
 
     public boolean esModoOperacion() {
         return "OPERACION".equalsIgnoreCase(modo);
@@ -252,6 +254,7 @@ public class MotorSimulacion {
                     factorAceleracion = 1.0;
             }
         }
+        this.factorBase = factorAceleracion;
         reloj.inicializar(inicioSim, factorAceleracion);
 
         // Operación diaria: los pedidos entran por Registro, pero los bloqueos los planifica la
@@ -762,6 +765,12 @@ public class MotorSimulacion {
             }
         }
         log.info("Motor de simulación detenido.");
+    }
+
+    public void cambiarVelocidad(double factor) {
+        double nuevoFactor = (factor <= 20.0 && factorBase > 0) ? factorBase * factor : factor;
+        reloj.setFactorAceleracion(nuevoFactor);
+        log.info("Motor global: Velocidad cambiada a {}x (factor aceleración reloj: {})", factor, nuevoFactor);
     }
 
     private void ejecutarRecargaDiaria() {

@@ -251,6 +251,9 @@ export const App: React.FC = () => {
     setEscenarioMotor(escenario);
     try {
       await iniciar(escenario);
+      if (speed !== '1') {
+        simulacionApi.cambiarVelocidad(Number(speed)).catch(() => {});
+      }
     } catch {
       // El motor puede tardar en responder; el reloj se sigue consultando solo.
     }
@@ -464,22 +467,30 @@ export const App: React.FC = () => {
                     <Square size={16} fill="currentColor" />
                   </button>
 
-                  <select
-                    value={speed}
-                    onChange={(e) => {
-                      setSpeed(e.target.value);
-                      // Multiplica la velocidad propia del escenario (por ejemplo, 2× la 5D = 300×)
-                      simulacionApi.cambiarVelocidad(Number(e.target.value)).catch(() => {
-                        /* si falla, la velocidad real se mantiene y el reloj lo refleja */
-                      });
-                    }}
-                    aria-label="Velocidad de la simulación"
-                    className="h-9 bg-white border border-brand-500 text-ink-900 rounded-md px-2 text-sm font-bold outline-none"
-                  >
-                    <option value="0.5">0.5×</option>
-                    <option value="1">1.0×</option>
-                    <option value="2">2.0×</option>
-                  </select>
+                  {(() => {
+                    const factorBase = escenarioSel === 'SIMULACION_5D' ? 150 : escenarioSel === 'COLAPSO_LOGISTICO' ? 50 : 1;
+                    const factorEff = Math.round(factorBase * Number(speed));
+                    const eqTexto = factorEff >= 60 ? `${(factorEff / 60).toFixed(1)} min` : `${factorEff} s`;
+                    return (
+                      <select
+                        value={speed}
+                        onChange={(e) => {
+                          setSpeed(e.target.value);
+                          // Multiplica la velocidad propia del escenario (5D base: 150×, Colapso base: 50×)
+                          simulacionApi.cambiarVelocidad(Number(e.target.value)).catch(() => {});
+                        }}
+                        aria-label="Velocidad de la simulación"
+                        title={`Velocidad: ${speed}× · Aceleración real: ${factorEff}× (1s real = ${eqTexto} sim)`}
+                        className="h-9 bg-white border border-brand-500 text-ink-900 rounded-md px-2 text-sm font-bold outline-none"
+                      >
+                        <option value="0.5">0.5×</option>
+                        <option value="1">1.0×</option>
+                        <option value="2">2.0×</option>
+                        <option value="5">5.0×</option>
+                        <option value="10">10.0×</option>
+                      </select>
+                    );
+                  })()}
                 </div>
               )}
             </div>

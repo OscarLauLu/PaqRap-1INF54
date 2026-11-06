@@ -78,6 +78,8 @@ public class SimulacionSession {
     private ScheduledExecutorService executorService;
     private LocalDateTime instanteInicioEjecucionReal;
     private LocalDateTime ultimaHoraPlanificada;
+    @Getter
+    private double factorBase = 1.0;
 
     // Estado en memoria de la sesión
     private final List<UnidadTransporte> unidades = new CopyOnWriteArrayList<>();
@@ -267,6 +269,7 @@ public class SimulacionSession {
                     factorAceleracion = 1.0;
             }
         }
+        this.factorBase = factorAceleracion;
         reloj.inicializar(inicioSim, factorAceleracion);
 
         // Filtrar pedidos anteriores a la fecha elegida
@@ -788,8 +791,9 @@ public class SimulacionSession {
     }
 
     public void cambiarVelocidad(double factor) {
-        reloj.setFactorAceleracion(factor);
-        log.info("Sesión {}: Velocidad cambiada a {}x", sessionId, factor);
+        double nuevoFactor = (factor <= 20.0 && factorBase > 0) ? factorBase * factor : factor;
+        reloj.setFactorAceleracion(nuevoFactor);
+        log.info("Sesión {}: Velocidad cambiada a {}x (factor aceleración reloj: {})", sessionId, factor, nuevoFactor);
     }
 
     public ResultadoSimulacion construirResultado(ResultadoSimulacionRepository resultadoRepo) {
