@@ -6,6 +6,7 @@ import { useIncidentes } from '../../hooks/useIncidentes';
 import { simulacionApi } from '../../api/simulacionApi';
 import { rutasApi, type RutaApi } from '../../api/rutasApi';
 import type { ResultadoSimulacion } from '../../types';
+import { ReportesDiariosCard } from './ReportesDiariosCard';
 
 const formatSoles = (valor: number) => `S/ ${valor.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -107,7 +108,7 @@ export const ReportePage: React.FC = () => {
 
   if (!ultimo) {
     return (
-      <main className="flex-1 p-6 md:p-8">
+      <main className="flex-1 p-6 md:p-8 space-y-6">
         <Card>
           <EmptyState
             icono={CheckCircle2}
@@ -115,6 +116,9 @@ export const ReportePage: React.FC = () => {
             detalle="Corre un escenario desde Configuración para ver aquí su reporte de desempeño."
           />
         </Card>
+
+        {/* Reportes diarios de la operación día a día (G09): no dependen de las simulaciones */}
+        <ReportesDiariosCard />
       </main>
     );
   }
@@ -259,6 +263,9 @@ export const ReportePage: React.FC = () => {
           )}
         </div>
       </Card>
+
+      {/* Reportes diarios de la operación día a día (G09) */}
+      <ReportesDiariosCard />
 
       <HistorialIncidentes incidentes={incidentes} loading={cargandoIncidentes} />
     </main>

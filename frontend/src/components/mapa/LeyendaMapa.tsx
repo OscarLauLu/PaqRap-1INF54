@@ -24,10 +24,18 @@ const COLOR = {
 // Averías por tipo (mismos colores y números que el mapa)
 // Escala de riesgo: amarillo (bajo) → naranja (medio) → rojo oscuro (alto)
 const AVERIAS = [
-  { numero: '1', nombre: 'Avería tipo 1', detalle: 'leve: 2 h en el lugar (riesgo bajo)', color: '#FDE047', texto: '#713F12' },
-  { numero: '2', nombre: 'Avería tipo 2', detalle: 'moderada: hasta el cambio de turno (riesgo medio)', color: '#F97316', texto: '#FFFFFF' },
-  { numero: '3', nombre: 'Avería tipo 3', detalle: 'grave: 2 días o más en taller (riesgo alto)', color: '#B91C1C', texto: '#FFFFFF' },
+  { numero: '1', nombre: 'Avería tipo 1', detalle: 'leve: 2 h en el lugar y sigue su ruta (riesgo bajo)', color: '#FDE047', texto: '#713F12' },
+  { numero: '2', nombre: 'Avería tipo 2', detalle: 'moderada: 4 h en el lugar; vuelve al final del turno siguiente (riesgo medio)', color: '#F97316', texto: '#FFFFFF' },
+  { numero: '3', nombre: 'Avería tipo 3', detalle: 'grave: 4 h en el lugar; 2 días o más en taller (riesgo alto)', color: '#B91C1C', texto: '#FFFFFF' },
 ];
+
+/** Triángulo de avería, igual al que se dibuja sobre el vehículo en el mapa */
+const TrianguloAveria: React.FC<{ color: string; texto: string; numero: string }> = ({ color, texto, numero }) => (
+  <svg viewBox="-0.6 -0.62 1.2 1.05" className="w-6 h-6" aria-hidden="true">
+    <polygon points="0,-0.55 0.5,0.36 -0.5,0.36" fill={color} stroke="#111827" strokeWidth="0.07" strokeLinejoin="round" />
+    <text y="0.27" textAnchor="middle" fontSize="0.42" fontWeight="bold" fill={texto}>{numero}</text>
+  </svg>
+);
 
 const Seccion: React.FC<{ titulo: string; children: React.ReactNode }> = ({ titulo, children }) => (
   <div>
@@ -111,7 +119,7 @@ export const LeyendaMapa: React.FC<LeyendaMapaProps> = ({ onClose, escenario }) 
           />
         </Seccion>
         <p className="-mt-1.5 px-1 text-[11px] text-(--color-ink-500)">
-          El número sobre el pin es el código corto del pedido (ej. <b>573</b> = PED-573-…).
+          El número sobre el pin es el código corto del pedido (ej. <b>573</b> = PED-573-…). Con más zoom se ve el código completo.
         </p>
 
         <Seccion titulo="Almacenes">
@@ -153,14 +161,7 @@ export const LeyendaMapa: React.FC<LeyendaMapaProps> = ({ onClose, escenario }) 
           {AVERIAS.map((t) => (
             <Item
               key={t.numero}
-              icono={
-                <span
-                  className="w-5 h-5 rounded-full border border-[#111827] flex items-center justify-center shadow-sm text-[11px] font-bold"
-                  style={{ backgroundColor: t.color, color: t.texto }}
-                >
-                  {t.numero}
-                </span>
-              }
+              icono={<TrianguloAveria color={t.color} texto={t.texto} numero={t.numero} />}
               nombre={t.nombre}
               detalle={`Avería ${t.detalle}. Va sobre el vehículo, que se ve atenuado.`}
             />

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { MapaOperaciones } from './components/mapa/MapaOperaciones';
@@ -26,6 +26,7 @@ import { rutasApi } from './api/rutasApi';
 import type { RutaApi } from './api/rutasApi';
 import type { RutaMapa } from './components/mapa/MapaOperaciones';
 import { parsearFechaLocal } from './utils/fechaLocal';
+import { generarReporteDiario } from './utils/reportesDiarios';
 
 type Seccion = 'registro' | 'configuracion' | 'simulacion' | 'reportes';
 
@@ -247,6 +248,22 @@ export const App: React.FC = () => {
   const sinDatos = backend !== 'operacion' && ((duenoDatos !== null && duenoDatos !== escenarioSel) || (motorActivo && duenoDatos === null));
   const ocupadoPor = duenoDatos ? NOMBRE_ESCENARIO[duenoDatos] : null;
 
+  // ---- Reporte diario automático de la Operación día a día (G09) ----
+  // Cuando el día de la operación cambia, se genera solo el reporte del día que terminó.
+  // Al detener la operación (■) se genera el del día en curso.
+  const fechaOperacion = esOperacion && !sinDatos && reloj.instanteActual ? reloj.instanteActual.slice(0, 10) : '';
+  const datosReporteRef = useRef({ metricas, rutas: rutasApiData });
+  datosReporteRef.current = { metricas, rutas: rutasApiData };
+  const ultimoDiaRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!fechaOperacion) return;
+    const anterior = ultimoDiaRef.current;
+    ultimoDiaRef.current = fechaOperacion;
+    if (anterior && anterior !== fechaOperacion) {
+      generarReporteDiario({ fecha: anterior, motivo: 'CAMBIO_DE_DIA', ...datosReporteRef.current });
+    }
+  }, [fechaOperacion]);
+
   const arrancar = async (escenario: Escenario) => {
     setEscenarioMotor(escenario);
     try {
@@ -282,6 +299,8 @@ export const App: React.FC = () => {
 
   // ■ en la operación diaria: la detiene y se queda en la pantalla (▶ la vuelve a iniciar)
   const detenerOperacion = async () => {
+    // Reporte del día en curso al cerrar la operación
+    if (fechaOperacion) generarReporteDiario({ fecha: fechaOperacion, motivo: 'CIERRE', ...datosReporteRef.current });
     try {
       await detener();
     } catch {
@@ -366,7 +385,7 @@ export const App: React.FC = () => {
         {/* Una sola pantalla para la Operación día a día y para las simulaciones (5D y colapso) */}
         {activeSection === 'simulacion' && (
           <main className="flex-1 p-6 md:p-8 flex flex-col w-full h-[calc(100vh-72px)] overflow-hidden">
-            {/* Barra superior con 4 tiempos e indicadores globales con semáforo (Sí3) */}
+            {/* Barra superior con los 4 tiempos (los indicadores globales están sobre el mapa) */}
             <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-xs md:text-sm">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                 {/* Momento simulado */}
@@ -387,26 +406,6 @@ export const App: React.FC = () => {
                 <div className="text-ink-400 font-semibold border-l border-gray-200 pl-4">
                   Hora real: <span className="text-ink-900 font-bold ml-1">{relojReal.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                   <span className="text-gray-400 font-normal ml-1">({getTranscurridoReal()})</span>
-                </div>
-
-                {/* Indicador Global 1: Ocupación Flota de UTs con semáforo (Sí3) */}
-                <div
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border bg-white text-xs font-semibold shadow-2xs"
-                  title={`Carga total de la flota: ${totalCargaFlota}/${totalCapacidadFlota} paquetes (${pctOcupacionFlota}%)`}
-                >
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: semFlotaColor }} />
-                  <span className="text-gray-500 font-medium">Flota:</span>
-                  <span className="font-bold text-(--color-ink-900)">{pctOcupacionFlota}%</span>
-                </div>
-
-                {/* Indicador Global 2: Ocupación Almacenes con semáforo (Sí3) */}
-                <div
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border bg-white text-xs font-semibold shadow-2xs"
-                  title={`Stock total en almacenes intermedios: ${stockTotalAlms}/${capTotalAlms} u (${pctOcupacionAlms}%)`}
-                >
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: semAlmsColor }} />
-                  <span className="text-gray-500 font-medium">Almacenes:</span>
-                  <span className="font-bold text-(--color-ink-900)">{pctOcupacionAlms}%</span>
                 </div>
 
                 {/* Estados */}
@@ -525,6 +524,18 @@ export const App: React.FC = () => {
                       }}
                       mostrarPorAtender={esOperacion}
                       filtros={filtros}
+                      ocupacionGlobal={{
+                        flota: {
+                          pct: pctOcupacionFlota,
+                          color: semFlotaColor,
+                          detalle: `Carga total de la flota: ${totalCargaFlota}/${totalCapacidadFlota} paquetes (${pctOcupacionFlota}%)`,
+                        },
+                        almacenes: {
+                          pct: pctOcupacionAlms,
+                          color: semAlmsColor,
+                          detalle: `Stock total en almacenes intermedios: ${stockTotalAlms}/${capTotalAlms} u (${pctOcupacionAlms}%)`,
+                        },
+                      }}
                     />
                   </div>
 

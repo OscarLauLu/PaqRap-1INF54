@@ -58,6 +58,11 @@ interface MapaOperacionesProps {
   mostrarPorAtender?: boolean;
   /** Averías registradas (opcional): sirve para saber el tipo de avería de cada vehículo */
   averias?: Array<{ idUnidad?: string; unidadCodigo?: string; tipo?: string; tipoAveria?: string; activa?: boolean }>;
+  /** Indicadores globales de ocupación (flota y almacenes), con su color de semáforo */
+  ocupacionGlobal?: {
+    flota: { pct: number; color: string; detalle?: string };
+    almacenes: { pct: number; color: string; detalle?: string };
+  };
 }
 
 /** Extrae los pares "x,y" de un texto como "(30,15) → (35,15)" o "30,15,35,15". */
@@ -258,6 +263,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   reloj,
   filtros,
   averias = [],
+  ocupacionGlobal,
 }) => {
   const [showLeyenda, setShowLeyenda] = useState(false);
 
@@ -1265,6 +1271,29 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           </div>
           <div className="px-3 py-2.5 space-y-2">{contenidoPopup.cuerpo}</div>
           <div className="px-3 pb-2 text-[10px] text-gray-400">Clic en el mapa vacío o Esc para quitar la selección</div>
+        </div>
+      )}
+
+      {/* Indicadores globales de ocupación (G01–G04): esquina superior izquierda del mapa */}
+      {ocupacionGlobal && (
+        <div className="absolute top-3 left-3 z-10 w-48 rounded-lg border border-gray-200 bg-white/95 shadow-sm px-3 py-2 select-none">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Ocupación global</div>
+          {([
+            ['Flota', ocupacionGlobal.flota],
+            ['Almacenes', ocupacionGlobal.almacenes],
+          ] as const).map(([etiqueta, ind]) => (
+            <div key={etiqueta} className="flex items-center gap-2 py-0.5" title={ind.detalle}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ind.color }} />
+              <span className="w-20 text-xs text-gray-700 truncate">{etiqueta}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className="h-1.5 rounded-full transition-[width] duration-500"
+                  style={{ width: `${Math.min(100, Math.max(0, ind.pct))}%`, backgroundColor: ind.color }}
+                />
+              </div>
+              <span className="w-9 text-right text-xs font-bold text-gray-900">{ind.pct}%</span>
+            </div>
+          ))}
         </div>
       )}
 
