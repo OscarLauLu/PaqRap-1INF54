@@ -1,9 +1,10 @@
 package com.paqrap.logistics.planificacion.model;
 
 import com.paqrap.logistics.redvial.model.Nodo;
-import com.paqrap.logistics.redvial.model.Tramo;
 import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.redvial.service.RedVialService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -16,6 +17,8 @@ import java.util.List;
  * Lo usan la operación diaria (PlanificacionService) y las sesiones de simulación.
  */
 public final class CaminoRuta {
+
+    private static final Logger log = LoggerFactory.getLogger(CaminoRuta.class);
 
     private CaminoRuta() {
     }
@@ -43,7 +46,13 @@ public final class CaminoRuta {
         return puntos;
     }
 
-    /** Une los puntos con la ruta mínima; si entre dos puntos no hay camino se unen directo. */
+    /**
+     * Une los puntos con el camino mínimo libre de bloqueos vigentes en {@code instante}.
+     * <p>
+     * El camino dibujado nunca atraviesa un bloqueo: si entre dos puntos los bloqueos no dejan pasar,
+     * el camino se corta ahí (el vehículo queda a la espera de que se libere la calle) en lugar de
+     * dibujar una línea recta que cruza el bloqueo, como hacía antes la ruta de contingencia.
+     */
     public static List<Ubicacion> unir(List<Ubicacion> puntos, RedVialService redVialService, LocalDateTime instante) {
         List<Ubicacion> camino = new ArrayList<>();
         if (puntos.isEmpty()) return camino;
@@ -51,18 +60,20 @@ public final class CaminoRuta {
         for (int i = 1; i < puntos.size(); i++) {
             Ubicacion desde = puntos.get(i - 1);
             Ubicacion hasta = puntos.get(i);
-            List<Tramo> tramos = redVialService.calcularRutaMinima(
-                    desde.getPosX(), desde.getPosY(), hasta.getPosX(), hasta.getPosY(), instante);
-            if (tramos == null || tramos.isEmpty()) {
-                camino.add(hasta);
-                continue;
+            if (desde.getPosX() == hasta.getPosX() && desde.getPosY() == hasta.getPosY()) {
+                continue; // mismo punto: no hay tramo que dibujar
             }
-            // Los tramos son de doble sentido y pueden venir invertidos: se toma el extremo distinto al actual
-            Nodo actual = Nodo.deUbicacion(camino.get(camino.size() - 1));
-            for (Tramo t : tramos) {
-                Nodo siguiente = t.getNodoOrigen().equals(actual) ? t.getNodoDestino() : t.getNodoOrigen();
-                camino.add(siguiente.aUbicacion());
-                actual = siguiente;
+            List<Nodo> nodos = redVialService.caminoLibre(
+                    desde.getPosX(), desde.getPosY(), hasta.getPosX(), hasta.getPosY(), instante);
+            if (nodos == null || nodos.size() < 2) {
+                // Sin camino libre: se corta aquí para no dibujar el cruce por un bloqueo
+                log.warn("Sin camino libre de bloqueos entre ({},{}) y ({},{}) en {}: el camino dibujado se corta en ese punto.",
+                        desde.getPosX(), desde.getPosY(), hasta.getPosX(), hasta.getPosY(), instante);
+                break;
+            }
+            // El primer nodo es "desde", que ya está en el camino
+            for (int k = 1; k < nodos.size(); k++) {
+                camino.add(nodos.get(k).aUbicacion());
             }
         }
         return camino;
