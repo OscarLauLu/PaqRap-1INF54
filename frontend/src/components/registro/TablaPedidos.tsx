@@ -20,9 +20,9 @@ const columnas = [
 ];
 
 export const TablaPedidos: React.FC<Props> = ({ pedidos, cargando }) => (
-  <div className="bg-white rounded-xl border border-(--color-line-200) shadow-sm overflow-x-auto">
+  <div className="bg-white rounded-xl border border-line-200 shadow-sm overflow-x-auto">
     <table className="w-full text-sm text-left">
-      <thead className="bg-(--color-brand-500) text-white">
+      <thead className="bg-brand-500 text-white">
         <tr>
           {columnas.map((c) => (
             <th key={c} className="px-4 py-3 font-semibold whitespace-nowrap">
@@ -31,23 +31,23 @@ export const TablaPedidos: React.FC<Props> = ({ pedidos, cargando }) => (
           ))}
         </tr>
       </thead>
-      <tbody className="text-(--color-ink-700)">
+      <tbody className="text-ink-700">
         {cargando && (
           <tr>
-            <td colSpan={columnas.length} className="px-4 py-6 text-center text-(--color-ink-400)">
+            <td colSpan={columnas.length} className="px-4 py-6 text-center text-ink-400">
               Cargando pedidos...
             </td>
           </tr>
         )}
         {!cargando && pedidos.length === 0 && (
           <tr>
-            <td colSpan={columnas.length} className="px-4 py-6 text-center text-(--color-ink-400)">
+            <td colSpan={columnas.length} className="px-4 py-6 text-center text-ink-400">
               Aún no hay pedidos registrados.
             </td>
           </tr>
         )}
         {pedidos.map((p) => (
-          <tr key={p.id} className="border-b border-gray-100 odd:bg-white even:bg-(--color-brand-50)/50">
+          <tr key={p.id} className="border-b border-gray-100 odd:bg-white even:bg-brand-50/50">
             <td className="px-4 py-3 whitespace-nowrap">{p.idCliente}</td>
             <td className="px-4 py-3 whitespace-nowrap">{p.cliente}</td>
             <td className="px-4 py-3 whitespace-nowrap">{formatUbicacion(p.ubicacion)}</td>

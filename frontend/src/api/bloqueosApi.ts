@@ -9,8 +9,12 @@ import type { NuevoBloqueoDatos } from '../types/registro';
  */
 export const bloqueosApi = {
   async listar(): Promise<BloqueoVial[]> {
-    const response = await apiClient.get<BloqueoVial[]>('/api/redvial/bloqueos');
-    return response.data;
+    try {
+      const response = await apiClient.get<BloqueoVial[]>('/api/redvial/bloqueos');
+      return Array.isArray(response.data) ? response.data : [];
+    } catch {
+      return [];
+    }
   },
 
   async subirArchivo(archivo: File): Promise<BloqueoVial[]> {

@@ -69,21 +69,21 @@ export const PestanaBloqueos: React.FC = () => {
             <button
               type="button"
               onClick={abrirSelector}
-              className="w-full h-32 rounded-xl border-2 border-dashed border-(--color-brand-500) bg-(--color-brand-50) hover:bg-(--color-brand-100) transition-colors flex flex-col items-center justify-center gap-1"
+              className="w-full h-32 rounded-xl border-2 border-dashed border-brand-500 bg-brand-50 hover:bg-brand-100 transition-colors flex flex-col items-center justify-center gap-1"
             >
-              <FileUp className="w-8 h-8 text-(--color-brand-500)" />
-              <span className="font-bold text-(--color-brand-700) text-sm">
+              <FileUp className="w-8 h-8 text-brand-500" />
+              <span className="font-bold text-brand-700 text-sm">
                 {archivo ? archivo.name : 'Selecciona el archivo mensual'}
               </span>
-              <span className="text-xs text-(--color-ink-400)">formato aaaamm.bloqueadas</span>
+              <span className="text-xs text-ink-400">formato aaaamm.bloqueadas</span>
             </button>
 
             {/* Recuadro informativo */}
-            <div className="flex items-center gap-3 rounded-md bg-(--color-brand-50) px-6 py-10 text-sm font-semibold text-(--color-ink-500)">
-              <Info className="w-6 h-6 text-(--color-brand-500) shrink-0" />
+            <div className="flex items-center gap-3 rounded-md bg-brand-50 px-6 py-10 text-sm font-semibold text-ink-500">
+              <Info className="w-6 h-6 text-brand-500 shrink-0" />
               <p>
                 El archivo a subir debe contener los bloqueos de las calles en el formato adecuado
-                <span className="block mt-1 text-xs font-normal text-(--color-ink-400)">
+                <span className="block mt-1 text-xs font-normal text-ink-400">
                 </span>
               </p>
             </div>
@@ -104,7 +104,7 @@ export const PestanaBloqueos: React.FC = () => {
             type="button"
             onClick={subirArchivo}
             disabled={!archivo || subiendo}
-            className="rounded-lg bg-(--color-brand-500) hover:bg-(--color-brand-600) disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-7 py-2.5 text-sm transition-colors"
+            className="rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-7 py-2.5 text-sm transition-colors"
           >
             {subiendo ? 'Procesando...' : 'Registrar bloqueo'}
           </button>
@@ -115,30 +115,30 @@ export const PestanaBloqueos: React.FC = () => {
 
       {/* ===== Tabla (sin cambios) ===== */}
       <div>
-        <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900) mb-3">
-          <Construction className="w-5 h-5 text-(--color-brand-500)" />
+        <h2 className="flex items-center gap-2 text-lg font-bold text-ink-900 mb-3">
+          <Construction className="w-5 h-5 text-brand-500" />
           Bloqueos registrados
         </h2>
-        <div className="bg-white rounded-xl border border-(--color-line-200) shadow-sm overflow-x-auto">
+        <div className="bg-white rounded-xl border border-line-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="bg-(--color-brand-500) text-white">
+            <thead className="bg-brand-500 text-white">
               <tr>
                 {['Código', 'Inicio', 'Fin', 'Tramos', 'Origen', 'Estado'].map((c) => (
                   <th key={c} className="px-4 py-3 font-semibold whitespace-nowrap">{c}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="text-(--color-ink-700)">
+            <tbody className="text-ink-700">
               {cargando && (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-(--color-ink-400)">Cargando bloqueos...</td></tr>
+                <tr><td colSpan={6} className="px-4 py-6 text-center text-ink-400">Cargando bloqueos...</td></tr>
               )}
               {!cargando && bloqueos.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-(--color-ink-400)">Aún no hay bloqueos registrados.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-6 text-center text-ink-400">Aún no hay bloqueos registrados.</td></tr>
               )}
               {bloqueos.map((b) => {
                 const estado = derivarEstadoBloqueo(b.fechaHoraInicio, b.fechaHoraFin);
                 return (
-                  <tr key={b.id} className="border-b border-gray-100 odd:bg-white even:bg-(--color-brand-50)/50">
+                  <tr key={b.id} className="border-b border-gray-100 odd:bg-white even:bg-brand-50/50">
                     <td className="px-4 py-3 whitespace-nowrap font-semibold">{b.codigo}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{formatFechaHora(b.fechaHoraInicio)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{formatFechaHora(b.fechaHoraFin)}</td>

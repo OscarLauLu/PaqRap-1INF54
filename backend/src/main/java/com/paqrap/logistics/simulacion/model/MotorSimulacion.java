@@ -61,6 +61,16 @@ public class MotorSimulacion {
     private final com.paqrap.logistics.planificacion.repository.RutaRepository rutaRepository;
     private final ResultadoSimulacionRepository resultadoRepository;
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    private final com.paqrap.logistics.flota.service.PlanMantenimientoService planMantenimiento;
+    private final com.paqrap.logistics.planificacion.repository.ParadaRutaRepository paradaRutaRepository;
+    private final com.paqrap.logistics.planificacion.service.RegistroRescates registroRescates;
+    private final com.paqrap.logistics.redvial.model.RedVial redVial;
+
+    /** Último mes cuyos bloqueos ya se cargaron en la operación diaria */
+    private java.time.YearMonth mesBloqueosCargado;
+
+    /** Unidades puestas en EN_MANTENIMIENTO por el plan preventivo (para devolverlas a DISPONIBLE). */
+    private final java.util.Set<String> enMantenimientoPorPlan = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     @Getter
     private ParametrosSimulacion parametros;
@@ -118,6 +128,8 @@ public class MotorSimulacion {
     // Último bloque de tiempo simulado en el que se planificó: evita planificar muchas veces dentro
     // del mismo minuto en tiempo real (a 1x, el minuto 0 dura 60 s y el ciclo pasa por él 120 veces)
     private LocalDateTime ultimaHoraPlanificada;
+    @Getter
+    private double factorBase = 1.0;
 
     public boolean esModoOperacion() {
         return "OPERACION".equalsIgnoreCase(modo);
@@ -138,6 +150,7 @@ public class MotorSimulacion {
         }
         if (params.getArchivoBloqueos() != null) {
             this.bloqueosProgramados = cargadorArchivos.cargarBloqueos(params.getArchivoBloqueos());
+            this.bloqueosProgramados.forEach(redVial::aplicarBloqueo);
         }
 
         log.info("Motor de simulación configurado exitosamente con {} pedidos y {} bloqueos programados.",
@@ -151,19 +164,24 @@ public class MotorSimulacion {
         // En modo operación no se cargan los archivos de ejemplo de septiembre: los pedidos
         // entran por el módulo de Registro, como en la operación real de la empresa
         if (!esModoOperacion() && (parametros == null || pedidosProgramados.isEmpty())) {
-            // Auto-load default data files if no prior configuration
+            // Sin configuración previa: archivos oficiales del mes de inicio (y del siguiente si el
+            // horizonte de 5 días cruza de mes), en vez de septiembre fijo
             LocalDateTime fechaElegida = (parametros != null) ? parametros.getFechaHoraInicio() : null;
+            LocalDateTime inicio = (fechaElegida != null) ? fechaElegida
+                    : java.time.LocalDate.now(java.time.ZoneId.of("America/Lima")).atStartOfDay();
+            java.time.YearMonth mesInicio = java.time.YearMonth.from(inicio);
             ParametrosSimulacion defaultParams = ParametrosSimulacion.builder().build();
-            // Resolve the 'datos' directory
-            java.io.File datosDir = new java.io.File("datos");
-            if (!datosDir.exists()) {
-                datosDir = new java.io.File("../datos");
-            }
-
-            defaultParams.setArchivoPedidos(new java.io.File(datosDir, "ventas.v20260909/ventas.202609.txt").getAbsolutePath());
-            defaultParams.setArchivoBloqueos(new java.io.File(datosDir, "bloqueos/bloqueo.2609.txt").getAbsolutePath());
+            defaultParams.setArchivoPedidos(DirectorioDatos.archivoVentas(mesInicio).orElse(null));
+            defaultParams.setArchivoBloqueos(DirectorioDatos.archivoBloqueos(mesInicio).orElse(null));
             defaultParams.setFechaHoraInicio(fechaElegida);
             configurar(defaultParams);
+            java.time.YearMonth mesFin = java.time.YearMonth.from(inicio.plusDays(5));
+            if (mesFin.isAfter(mesInicio)) {
+                pedidosProgramados = new ArrayList<>(pedidosProgramados);
+                bloqueosProgramados = new ArrayList<>(bloqueosProgramados);
+                DirectorioDatos.archivoVentas(mesFin).ifPresent(r -> pedidosProgramados.addAll(cargadorArchivos.cargarPedidos(r)));
+                DirectorioDatos.archivoBloqueos(mesFin).ifPresent(r -> bloqueosProgramados.addAll(cargadorArchivos.cargarBloqueos(r)));
+            }
             log.info("Auto-configurado con archivos por defecto: {} pedidos, {} bloqueos",
                     pedidosProgramados.size(), bloqueosProgramados.size());
         }
@@ -214,7 +232,9 @@ public class MotorSimulacion {
         this.instanteColapsoDetectado = null;
         this.volumenPedidosColapsoDetectado = null;
         this.ultimaHoraPlanificada = null;
-        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null) ? parametros.getFechaHoraInicio() : LocalDateTime.of(2026, 9, 1, 0, 0, 0);
+        LocalDateTime inicioSim = (parametros != null && parametros.getFechaHoraInicio() != null)
+                ? parametros.getFechaHoraInicio()
+                : java.time.LocalDate.now(java.time.ZoneId.of("America/Lima")).atStartOfDay();
         double factorAceleracion;
         if (parametros != null && parametros.getFactorAceleracion() != null && parametros.getFactorAceleracion() > 0) {
             factorAceleracion = parametros.getFactorAceleracion();
@@ -234,7 +254,16 @@ public class MotorSimulacion {
                     factorAceleracion = 1.0;
             }
         }
+        this.factorBase = factorAceleracion;
         reloj.inicializar(inicioSim, factorAceleracion);
+
+        // Operación diaria: los pedidos entran por Registro, pero los bloqueos los planifica la
+        // municipalidad por mes (FAQ 7): se cargan del archivo del mes en curso y al cambiar de mes
+        if (esModoOperacion()) {
+            bloqueosProgramados = new ArrayList<>();
+            mesBloqueosCargado = null;
+            cargarBloqueosOperacionHasta(java.time.YearMonth.from(inicioSim));
+        }
 
         // Solo entran a la simulación los pedidos registrados DESDE la fecha de inicio elegida.
         // Si se inicia, por ejemplo, el 02/09 a las 08:00, los pedidos del 01/09 no son parte de esta
@@ -282,6 +311,20 @@ public class MotorSimulacion {
             log.error("Error procesando eventos en instante {}: {}", instanteActual, e.getMessage());
         }
 
+        // --- Mantenimiento preventivo del día (FAQ 19) ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> aplicarMantenimiento(instanteActual));
+        } catch (Exception e) {
+            log.error("Error aplicando mantenimiento preventivo en instante {}: {}", instanteActual, e.getMessage());
+        }
+
+        // --- Averías activas: traslado al central (tipo 2 y 3) y reincorporación (FAQ 3) ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> atenderAverias(instanteActual));
+        } catch (Exception e) {
+            log.error("Error atendiendo averías en instante {}: {}", instanteActual, e.getMessage());
+        }
+
         if (estado != EstadoEjecucion.EN_EJECUCION) return;
 
         // --- Transacción 2: Movimientos de flota y entregas ---
@@ -309,6 +352,13 @@ public class MotorSimulacion {
             }
         } catch (Exception e) {
             log.error("Error en planificación en instante {}: {}", instanteActual, e.getMessage());
+        }
+
+        // --- Carga que lleva cada vehículo tras las entregas y las rutas nuevas de este paso ---
+        try {
+            transactionTemplate.executeWithoutResult(status -> actualizarCargas(instanteActual));
+        } catch (Exception e) {
+            log.error("Error actualizando la carga de los vehículos en instante {}: {}", instanteActual, e.getMessage());
         }
 
         // Recarga diaria de almacenes intermedios a las 23:59:59 (RF-20)
@@ -350,6 +400,10 @@ public class MotorSimulacion {
      */
     public void procesarEventos(LocalDateTime instante) {
         if (instante == null) return;
+
+        if (esModoOperacion()) {
+            cargarBloqueosOperacionHasta(java.time.YearMonth.from(instante));
+        }
 
         // 1. Ingreso de nuevos pedidos según hora simulada
         List<Pedido> entrantes = new ArrayList<>();
@@ -406,6 +460,134 @@ public class MotorSimulacion {
     }
 
     /**
+     * Avanza las averías sin resolver: a las 4 h en el lugar los tipos 2 y 3 se trasladan al central y
+     * sus pedidos pendientes vuelven a planificarse; al llegar la hora de reincorporación la unidad vuelve.
+     */
+    private void atenderAverias(LocalDateTime instante) {
+        List<Averia> activas = averiaRepository.findByResueltaFalse();
+        if (activas.isEmpty()) return;
+        com.paqrap.logistics.redvial.model.Ubicacion central = almacenRepository.findAll().stream()
+                .filter(a -> a instanceof com.paqrap.logistics.almacen.model.AlmacenCentral && a.getUbicacion() != null)
+                .map(com.paqrap.logistics.almacen.model.Almacen::getUbicacion)
+                .findFirst()
+                .orElse(new com.paqrap.logistics.redvial.model.Ubicacion(27, 14));
+        List<Ruta> todas = rutaRepository.findAll();
+        registroRescates.adjuntar(todas);
+        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(todas);
+        List<com.paqrap.logistics.almacen.model.Almacen> almacenes = almacenRepository.findAll();
+        for (Averia a : activas) {
+            UnidadTransporte u = a.getUnidad();
+            if (u == null || a.getFechaHoraEvento() == null) continue;
+            // Rescate: una unidad libre o que regresa va a trasvasar la carga (una vez por avería)
+            if (!registroRescates.tieneRescate(a.getCodigo())) {
+                Ruta rescate = com.paqrap.logistics.planificacion.model.PlanificadorTrasvase.planificar(
+                        a, enCurso.get(u.getCodigo()), unidadRepository.findAll(), enCurso, instante, almacenes,
+                        "RES-" + a.getCodigo());
+                if (rescate != null) {
+                    Ruta guardada = rutaRepository.save(rescate);
+                    guardada.setRescate(rescate.getRescate());
+                    registroRescates.registrar(guardada.getId(), rescate.getRescate());
+                    guardada.getParadas().forEach(p -> {
+                        if (p.getPedido() != null) {
+                            p.getPedido().setRutaAsignadaId(guardada.getId());
+                            pedidoRepository.save(p.getPedido());
+                        }
+                    });
+                    unidadRepository.save(guardada.getUnidadTransporte());
+                    registrarCostosYRutas(List.of(guardada));
+                    log.info("{} va a rescatar {} paquetes de {} (trasvase {} a {})",
+                            guardada.getUnidadTransporte().getCodigo(), rescate.getRescate().getCantidadProductos(),
+                            u.getCodigo(), rescate.getRescate().getLlegada(), rescate.getRescate().getFin());
+                    todas = rutaRepository.findAll();
+                    registroRescates.adjuntar(todas);
+                    enCurso = Ruta.rutaEnCursoPorUnidad(todas);
+                }
+            }
+            Ruta ruta = enCurso.get(u.getCodigo());
+            List<com.paqrap.logistics.planificacion.model.ParadaRuta> liberadas = new ArrayList<>();
+            AtencionAverias.Cambio cambio = AtencionAverias.avanzar(a, u, ruta, instante, central, liberadas);
+            if (cambio == AtencionAverias.Cambio.NINGUNO) continue;
+            for (com.paqrap.logistics.planificacion.model.ParadaRuta p : liberadas) {
+                if (p.getPedido() != null) pedidoRepository.save(p.getPedido());
+                paradaRutaRepository.delete(p);
+            }
+            if (ruta != null) rutaRepository.save(ruta);
+            unidadRepository.save(u);
+            averiaRepository.save(a);
+            log.info("Avería {} de {}: {}", a.getCodigo(), u.getCodigo(), cambio);
+        }
+    }
+
+    /**
+     * Carga actual de cada vehículo = paquetes aún no entregados de su ruta en curso.
+     * Solo se guardan las unidades cuya carga cambió.
+     */
+    private void actualizarCargas(LocalDateTime instante) {
+        List<Ruta> todas = rutaRepository.findAll();
+        registroRescates.adjuntar(todas);
+        java.util.Map<String, Ruta> enCurso = Ruta.rutaEnCursoPorUnidad(todas);
+        // Carga de rescates aún no trasvasada: sigue a bordo de la unidad averiada
+        java.util.Map<String, Integer> porTrasvasar = new java.util.HashMap<>();
+        for (Ruta r : todas) {
+            if (r.getEstado() != EstadoRuta.COMPLETADA && r.trasvasePendiente(instante)) {
+                porTrasvasar.merge(r.getRescate().getUnidadAveriada(), r.cargaPendiente(), Integer::sum);
+            }
+        }
+        for (UnidadTransporte u : unidadRepository.findAll()) {
+            Ruta r = enCurso.get(u.getCodigo());
+            int carga = ((r != null) ? r.cargaABordo(instante) : 0) + porTrasvasar.getOrDefault(u.getCodigo(), 0);
+            if (u.getCargaActual() != carga) {
+                u.setCargaActual(carga);
+                unidadRepository.save(u);
+            }
+        }
+    }
+
+    /**
+     * Mantenimiento preventivo (FAQ 19): la unidad no está disponible de 00:00 a 23:59 de su día.
+     * Solo se pasa a mantenimiento una unidad libre (el Planificador ya evita rutas que crucen las
+     * 00:00 de ese día). Al terminar el día, se devuelve a DISPONIBLE solo si fue el plan quien la
+     * puso en mantenimiento, para no pisar un cambio manual de un operario.
+     */
+    private void aplicarMantenimiento(LocalDateTime instante) {
+        if (planMantenimiento == null || instante == null) return;
+        for (UnidadTransporte u : unidadRepository.findAll()) {
+            boolean enPlan = planMantenimiento.estaEnMantenimiento(u.getCodigo(), instante);
+            if (enPlan && u.getEstadoOperativo() == EstadoOperativo.DISPONIBLE) {
+                u.setEstadoOperativo(EstadoOperativo.EN_MANTENIMIENTO);
+                unidadRepository.save(u);
+                enMantenimientoPorPlan.add(u.getCodigo());
+                log.info("Unidad {} en mantenimiento preventivo el {}", u.getCodigo(), instante.toLocalDate());
+            } else if (!enPlan && enMantenimientoPorPlan.remove(u.getCodigo())
+                    && u.getEstadoOperativo() == EstadoOperativo.EN_MANTENIMIENTO) {
+                u.setEstadoOperativo(EstadoOperativo.DISPONIBLE);
+                unidadRepository.save(u);
+            }
+        }
+    }
+
+    /**
+     * Operación diaria: carga los bloqueos oficiales de cada mes pendiente hasta {@code objetivo} y los
+     * aplica a la red vial (el ACO y el camino dibujado los esquivan). Se activan y se muestran en el
+     * mapa cuando entran en vigencia (procesarEventos).
+     */
+    private void cargarBloqueosOperacionHasta(java.time.YearMonth objetivo) {
+        java.time.YearMonth mes = (mesBloqueosCargado == null) ? objetivo : mesBloqueosCargado.plusMonths(1);
+        while (!mes.isAfter(objetivo)) {
+            final java.time.YearMonth mesActual = mes;
+            DirectorioDatos.archivoBloqueos(mesActual).ifPresentOrElse(ruta -> {
+                List<Bloqueo> delMes = cargadorArchivos.cargarBloqueos(ruta);
+                if (!(bloqueosProgramados instanceof ArrayList)) bloqueosProgramados = new ArrayList<>(bloqueosProgramados);
+                bloqueosProgramados.addAll(delMes);
+                delMes.forEach(redVial::aplicarBloqueo);
+                log.info("Operación diaria: {} bloqueos programados para {}", delMes.size(), mesActual);
+            }, () -> log.warn("Operación diaria: no hay archivo de bloqueos para {}", mesActual));
+            mesBloqueosCargado = mesActual;
+            mes = mes.plusMonths(1);
+        }
+    }
+
+    /**
      * Cuenta los pedidos que el sistema tenía activos (no entregados, no cancelados) en el instante actual.
      * Usado como métrica de carga soportada justo antes de un colapso (RF-73).
      */
@@ -418,12 +600,23 @@ public class MotorSimulacion {
     private void ejecutarMovimientosFlota(LocalDateTime instante) {
         // Obtenemos las rutas en ejecución o recién planificadas
         List<Ruta> rutasActivas = rutaRepository.findAll();
+        registroRescates.adjuntar(rutasActivas);
+        List<com.paqrap.logistics.almacen.model.Almacen> almacenes = null; // se cargan solo si alguien regresa
         for (Ruta r : rutasActivas) {
             if (r.getEstado() == EstadoRuta.COMPLETADA || r.getUnidadTransporte() == null) continue;
+            // Una unidad averiada se queda inmóvil donde ocurrió la falla (FAQ 3)
+            if (r.getUnidadTransporte().getEstadoOperativo() == com.paqrap.logistics.flota.model.EstadoOperativo.AVERIADA) continue;
 
             // Si el instante actual corresponde a la hora de alimentación obligatoria del turno (RF-44),
             // el conductor se encuentra en refrigerio y no realiza entregas durante esta hora
             if (Turno.esHoraAlimentacion(instante.toLocalTime())) {
+                continue;
+            }
+
+            // Ruta de rescate: primero va al punto de la avería y trasvasa (30 min)
+            if (r.avanzarTramoRescate(instante)) {
+                unidadRepository.save(r.getUnidadTransporte());
+                rutaRepository.save(r);
                 continue;
             }
 
@@ -466,9 +659,11 @@ public class MotorSimulacion {
                         LocalDateTime startTime;
                         int startX, startY;
                         if (pos == 0) {
-                            startTime = r.getFechaHoraGeneracion();
-                            startX = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosX() : 27;
-                            startY = (r.getAlmacenOrigen() != null && r.getAlmacenOrigen().getUbicacion() != null) ? r.getAlmacenOrigen().getUbicacion().getPosY() : 14;
+                            // Sale del almacén, o del punto de la avería si es una ruta de rescate
+                            startTime = r.inicioEntregas();
+                            com.paqrap.logistics.redvial.model.Ubicacion origen = r.origenEntregas();
+                            startX = origen != null ? origen.getPosX() : 27;
+                            startY = origen != null ? origen.getPosY() : 14;
                         } else {
                             com.paqrap.logistics.planificacion.model.ParadaRuta prev = r.getParadas().get(pos - 1);
                             startTime = prev.getHoraEstimadaLlegada().plusMinutes(prev.getTiempoServicioMin());
@@ -501,11 +696,11 @@ public class MotorSimulacion {
                 }
             }
 
-            // Si todas están entregadas, regresar al almacén y liberar
+            // Si todas están entregadas, el vehículo regresa al almacén con stock más cercano (FAQ 10);
+            // se ve viajando y queda DISPONIBLE al llegar
             if (todasEntregadas && !r.getParadas().isEmpty()) {
-                r.setEstado(EstadoRuta.COMPLETADA);
-                r.getUnidadTransporte().setUbicacionActual(new com.paqrap.logistics.redvial.model.Ubicacion(27, 14));
-                r.getUnidadTransporte().setEstadoOperativo(com.paqrap.logistics.flota.model.EstadoOperativo.DISPONIBLE);
+                if (almacenes == null) almacenes = almacenRepository.findAll();
+                r.avanzarRetorno(instante, almacenes);
                 unidadRepository.save(r.getUnidadTransporte());
             }
             rutaRepository.save(r);
@@ -570,6 +765,12 @@ public class MotorSimulacion {
             }
         }
         log.info("Motor de simulación detenido.");
+    }
+
+    public void cambiarVelocidad(double factor) {
+        double nuevoFactor = (factor <= 20.0 && factorBase > 0) ? factorBase * factor : factor;
+        reloj.setFactorAceleracion(nuevoFactor);
+        log.info("Motor global: Velocidad cambiada a {}x (factor aceleración reloj: {})", factor, nuevoFactor);
     }
 
     private void ejecutarRecargaDiaria() {

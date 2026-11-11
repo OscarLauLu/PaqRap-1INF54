@@ -65,16 +65,16 @@ export const RegistroPage: React.FC = () => {
               }}
               className={`flex items-center gap-4 rounded-xl border px-5 py-4 text-left transition-colors ${
                 activa
-                  ? 'border-(--color-brand-500) bg-(--color-brand-50) shadow-sm'
-                  : 'border-(--color-line-200) bg-white hover:bg-gray-50'
+                  ? 'border-brand-500 bg-brand-50 shadow-sm'
+                  : 'border-line-200 bg-white hover:bg-gray-50'
               }`}
             >
-              <Icono className={`w-10 h-10 shrink-0 ${activa ? 'text-(--color-brand-500)' : 'text-(--color-ink-900)'}`} />
+              <Icono className={`w-10 h-10 shrink-0 ${activa ? 'text-brand-500' : 'text-ink-900'}`} />
               <span>
-                <span className={`block text-lg font-bold ${activa ? 'text-(--color-brand-500)' : 'text-(--color-ink-900)'}`}>
+                <span className={`block text-lg font-bold ${activa ? 'text-brand-500' : 'text-ink-900'}`}>
                   {titulo}
                 </span>
-                <span className="block text-sm text-(--color-ink-400)">{detalle}</span>
+                <span className="block text-sm text-ink-400">{detalle}</span>
               </span>
             </button>
           );
@@ -106,7 +106,7 @@ export const RegistroPage: React.FC = () => {
             <button
               type="submit"
               form="form-nuevo-pedido"
-              className="rounded-xl bg-(--color-brand-500) hover:bg-(--color-brand-600) active:bg-(--color-brand-700) text-white font-semibold px-6 py-2.5 text-sm transition-colors"
+              className="rounded-xl bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white font-semibold px-6 py-2.5 text-sm transition-colors"
             >
               Registrar pedido
             </button>
@@ -116,8 +116,8 @@ export const RegistroPage: React.FC = () => {
 
           {/* Lista de pedidos (título encima de la tabla, igual que "Bloqueos registrados") */}
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-(--color-ink-900) mb-3">
-              <ClipboardList className="w-5 h-5 text-(--color-brand-500)" />
+            <h2 className="flex items-center gap-2 text-lg font-bold text-ink-900 mb-3">
+              <ClipboardList className="w-5 h-5 text-brand-500" />
               Lista de pedidos
             </h2>
             <TablaPedidos pedidos={pedidos} cargando={cargando} />

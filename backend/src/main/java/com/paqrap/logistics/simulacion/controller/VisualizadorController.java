@@ -2,9 +2,12 @@ package com.paqrap.logistics.simulacion.controller;
 
 import com.paqrap.logistics.pedidos.model.ConfiguracionSemaforo;
 import com.paqrap.logistics.simulacion.model.Alerta;
+import com.paqrap.logistics.simulacion.model.EstadoEjecucion;
+import com.paqrap.logistics.simulacion.model.SimulacionSession;
 import com.paqrap.logistics.simulacion.model.TipoAlerta;
 import com.paqrap.logistics.simulacion.model.Visualizador;
 import com.paqrap.logistics.simulacion.repository.AlertaRepository;
+import com.paqrap.logistics.simulacion.service.SimulacionSessionManager;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,22 +33,38 @@ public class VisualizadorController {
     private final Visualizador visualizador;
     private final ConfiguracionSemaforo configuracionSemaforo;
     private final AlertaRepository alertaRepository;
+    private final SimulacionSessionManager sessionManager;
 
     @GetMapping("/operaciones")
     @Operation(summary = "Obtener estado completo del mapa de operaciones (RF-51 a RF-54)", description = "Devuelve posiciones de flota, pedidos con semáforo verde/ámbar/rojo, tramos bloqueados y averías")
-    public ResponseEntity<Map<String, Object>> obtenerMapaOperaciones() {
+    public ResponseEntity<Map<String, Object>> obtenerMapaOperaciones(
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            return ResponseEntity.ok(sesion.obtenerMapaOperaciones());
+        }
         return ResponseEntity.ok(visualizador.mostrarMapaOperaciones());
     }
 
     @GetMapping("/unidades")
     @Operation(summary = "Consultar ubicación y estado operativo de las unidades en el mapa (RF-51, RF-52)")
-    public ResponseEntity<List<Map<String, Object>>> obtenerUnidades() {
+    public ResponseEntity<List<Map<String, Object>>> obtenerUnidades(
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            return ResponseEntity.ok(sesion.obtenerUnidadesMap());
+        }
         return ResponseEntity.ok(visualizador.refrescarEstadoUnidades());
     }
 
     @GetMapping("/pedidos")
     @Operation(summary = "Consultar pedidos en curso con semáforo de criticidad (RF-53)")
-    public ResponseEntity<List<Map<String, Object>>> obtenerPedidos() {
+    public ResponseEntity<List<Map<String, Object>>> obtenerPedidos(
+            @RequestHeader(value = "X-Simulation-Session-Id", required = false) String sessionId) {
+        SimulacionSession sesion = sessionManager.obtenerSesion(sessionId);
+        if (sesion != null && sesion.getEstado() != EstadoEjecucion.CONFIGURADA) {
+            return ResponseEntity.ok(sesion.obtenerPedidosMap());
+        }
         return ResponseEntity.ok(visualizador.obtenerPedidosConSemaforo());
     }
 

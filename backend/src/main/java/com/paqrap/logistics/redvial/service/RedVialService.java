@@ -50,6 +50,23 @@ public class RedVialService {
         return redVial.calcularRutaMinima(o, d, instante != null ? instante : LocalDateTime.now());
     }
 
+    /**
+     * Camino calle por calle entre dos puntos que NUNCA atraviesa un bloqueo vigente en {@code instante}
+     * (lista de nodos en orden, desde el origen hasta el destino).
+     * <p>
+     * A diferencia de {@link #calcularRutaMinima}, no tiene "plan B": si los bloqueos no dejan pasar,
+     * devuelve una lista vacía en vez de una ruta recta que cruza el bloqueo. Lo usa el camino que
+     * se dibuja en el mapa ({@code CaminoRuta}).
+     */
+    public List<Nodo> caminoLibre(int x1, int y1, int x2, int y2, LocalDateTime instante) {
+        if (x1 < 0 || x1 > 70 || y1 < 0 || y1 > 50 || x2 < 0 || x2 > 70 || y2 < 0 || y2 > 50) {
+            throw new IllegalArgumentException("Coordenadas fuera del rango permitido de la retícula (0..70, 0..50).");
+        }
+        Nodo o = redVial.obtenerNodo(x1, y1);
+        Nodo d = redVial.obtenerNodo(x2, y2);
+        return redVial.caminoMinimoNodos(o, d, instante != null ? instante : LocalDateTime.now());
+    }
+
     public List<Bloqueo> listarBloqueosActivos() {
         return bloqueoRepository.findByActivoTrue();
     }
