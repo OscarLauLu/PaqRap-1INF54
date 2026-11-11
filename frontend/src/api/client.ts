@@ -45,6 +45,17 @@ export const apiClient = axios.create({
 // /sim/api/..., y el proxy de Vite la envía al backend de simulación (puerto 8081).
 // Además se inyecta el encabezado X-Simulation-Session-Id para aislar la corrida por usuario/dispositivo.
 apiClient.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    // Permitir que el navegador genere el encabezado multipart con su boundary único
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+    }
+    // Aumentar timeout por defecto para subida de archivos si no se especificó uno
+    if (!config.timeout || config.timeout === 5000) {
+      config.timeout = 60000;
+    }
+  }
+
   if (backendActual === 'simulacion') {
     if (config.url?.startsWith('/api/')) {
       config.url = `/sim${config.url}`;

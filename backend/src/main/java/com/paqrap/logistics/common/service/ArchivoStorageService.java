@@ -21,7 +21,12 @@ public class ArchivoStorageService {
     public String guardar(MultipartFile archivo, String subcarpeta) throws IOException {
         Path dir = CARPETA_BASE.resolve(subcarpeta).toAbsolutePath();
         Files.createDirectories(dir);
-        String nombreLimpio = System.currentTimeMillis() + "-" + archivo.getOriginalFilename();
+        String nombreOriginal = archivo.getOriginalFilename();
+        if (nombreOriginal == null || nombreOriginal.trim().isEmpty()) {
+            nombreOriginal = "archivo.txt";
+        }
+        nombreOriginal = Paths.get(nombreOriginal).getFileName().toString();
+        String nombreLimpio = System.currentTimeMillis() + "-" + nombreOriginal;
         Path destino = dir.resolve(nombreLimpio);
         archivo.transferTo(destino.toFile());
         return destino.toString();

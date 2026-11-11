@@ -82,13 +82,12 @@ public class RedVialService {
     public List<Bloqueo> cargarArchivoBloqueos(String rutaArchivo) {
         List<Bloqueo> cargados = cargadorArchivos.cargarBloqueos(rutaArchivo);
         for (Bloqueo b : cargados) {
-            bloqueoRepository.save(b);
             if (b.estaVigente(LocalDateTime.now())) {
                 b.activar();
                 redVial.aplicarBloqueo(b);
-                bloqueoRepository.save(b);
             }
         }
+        bloqueoRepository.saveAll(cargados);
         log.info("Persistidos y procesados {} bloqueos viales desde {}", cargados.size(), rutaArchivo);
         return cargados;
     }

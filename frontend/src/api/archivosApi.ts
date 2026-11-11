@@ -8,7 +8,7 @@ export const archivosApi = {
     formData.append('archivo', archivo);
     const response = await apiClient.post<{ rutaArchivo: string }>('/api/archivos/subir', formData, {
       params: { tipo },
-      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     });
     return response.data.rutaArchivo;
   },

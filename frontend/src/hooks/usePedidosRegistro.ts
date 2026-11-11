@@ -6,12 +6,17 @@ export const usePedidosRegistro = () => {
   const [pedidos, setPedidos] = useState<PedidoRegistro[]>([]);
   const [cargando, setCargando] = useState(true);
 
-  useEffect(() => {
+  const recargar = useCallback(() => {
+    setCargando(true);
     pedidosApi
       .listar()
       .then(setPedidos)
       .finally(() => setCargando(false));
   }, []);
+
+  useEffect(() => {
+    recargar();
+  }, [recargar]);
 
   const registrar = useCallback(async (datos: NuevoPedidoDatos) => {
     const nuevo = await pedidosApi.registrar(datos);
@@ -19,5 +24,5 @@ export const usePedidosRegistro = () => {
     return nuevo;
   }, []);
 
-  return { pedidos, cargando, registrar };
+  return { pedidos, cargando, registrar, recargar };
 };

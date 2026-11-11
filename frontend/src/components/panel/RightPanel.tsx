@@ -279,7 +279,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   const porAtender = pedidos.filter(p => p.estado === 'REGISTRADO').length;
 
   const pctCumplimiento = totalPedidos > 0 ? (entregados / totalPedidos) * 100 : 0;
-  const reasignados = pedidos.filter(p => p.estado === 'REASIGNADO').length;
+  const reasignados = pedidos.filter(p => (p.estado as string) === 'REASIGNADO').length;
 
   // Pedidos aún no entregados, por criticidad (lo más importante del caso: entregar dentro del plazo)
   const activos = pedidos.filter(p => p.estado !== 'ENTREGADO');

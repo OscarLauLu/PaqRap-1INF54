@@ -34,6 +34,31 @@ public class CargadorArchivos {
 
     private static final Pattern PATRON_FECHA = Pattern.compile("(\\d{2})d(\\d{2})h(\\d{2})m");
 
+    public static int[] extraerAnioMes(String rutaArchivo) {
+        int anio = 2026;
+        int mes = 9;
+        if (rutaArchivo == null || rutaArchivo.trim().isEmpty()) {
+            return new int[]{anio, mes};
+        }
+        String nombre = new File(rutaArchivo).getName();
+        // Quitar prefijo de timestamp si fue subido vía ArchivoStorageService (ej. "1731234567890-")
+        nombre = nombre.replaceFirst("^\\d{10,14}[-_]", "");
+
+        // 1. Buscar año de 4 dígitos (2020 a 2099) seguido de mes (01 a 12), ej. 202610.bloqueadas, ventas202610.txt
+        Matcher m4 = Pattern.compile("(?<!\\d)(20\\d{2})(0[1-9]|1[0-2])(?![0-9])").matcher(nombre);
+        if (m4.find()) {
+            return new int[]{Integer.parseInt(m4.group(1)), Integer.parseInt(m4.group(2))};
+        }
+
+        // 2. Buscar año de 2 dígitos (20 a 39) seguido de mes (01 a 12), ej. bloqueo.2610.txt
+        Matcher m2 = Pattern.compile("(?<!\\d)(2[0-9]|3[0-9])(0[1-9]|1[0-2])(?![0-9])").matcher(nombre);
+        if (m2.find()) {
+            return new int[]{2000 + Integer.parseInt(m2.group(1)), Integer.parseInt(m2.group(2))};
+        }
+
+        return new int[]{anio, mes};
+    }
+
     /**
      * Valida si el formato sintáctico del archivo es correcto antes de ejecutar la simulación (RF-64).
      */
@@ -42,7 +67,7 @@ public class CargadorArchivos {
             return false;
         }
         File archivo = new File(rutaArchivo);
-        return archivo.exists() && archivo.isFile() && archivo.canRead();
+        return archivo.exists() && archivo.isFile() && archivo.canRead() && archivo.length() > 0;
     }
 
     /**
@@ -55,14 +80,9 @@ public class CargadorArchivos {
             return pedidos;
         }
 
-        int anio = 2026;
-        int mes = 9;
-        String nombreArchivo = new File(rutaArchivo).getName();
-        Matcher mAnioMes = Pattern.compile("\\.(\\d{4})(\\d{2})").matcher(nombreArchivo);
-        if (mAnioMes.find()) {
-            anio = Integer.parseInt(mAnioMes.group(1));
-            mes = Integer.parseInt(mAnioMes.group(2));
-        }
+        int[] anioMes = extraerAnioMes(rutaArchivo);
+        int anio = anioMes[0];
+        int mes = anioMes[1];
 
         try (BufferedReader br = new BufferedReader(new FileReader(rutaArchivo))) {
             String linea;
@@ -71,6 +91,8 @@ public class CargadorArchivos {
                 linea = linea.trim();
                 numLinea++;
                 if (linea.isEmpty() || linea.startsWith("#")) continue;
+                if (linea.startsWith("\uFEFF")) linea = linea.substring(1).trim();
+                linea = linea.replace(';', ',');
 
                 // Soporta formato ##d##h##m,x,y,... y formato ##d##h##m:x,y,...
                 String lineaNormalizada = linea;
@@ -149,20 +171,9 @@ public class CargadorArchivos {
             return bloqueos;
         }
 
-        int anio = 2026;
-        int mes = 9;
-        String nombreArchivo = new File(rutaArchivo).getName();
-        Matcher mAnioMes = Pattern.compile("\\.(\\d{4})(\\d{2})").matcher(nombreArchivo);
-        if (mAnioMes.find()) {
-            anio = Integer.parseInt(mAnioMes.group(1));
-            mes = Integer.parseInt(mAnioMes.group(2));
-        } else {
-            Matcher mCorto = Pattern.compile("\\.(\\d{2})(\\d{2})").matcher(nombreArchivo);
-            if (mCorto.find()) {
-                anio = 2000 + Integer.parseInt(mCorto.group(1));
-                mes = Integer.parseInt(mCorto.group(2));
-            }
-        }
+        int[] anioMes = extraerAnioMes(rutaArchivo);
+        int anio = anioMes[0];
+        int mes = anioMes[1];
 
         try (BufferedReader br = new BufferedReader(new FileReader(rutaArchivo))) {
             String linea;
@@ -171,28 +182,41 @@ public class CargadorArchivos {
                 linea = linea.trim();
                 numLinea++;
                 if (linea.isEmpty() || linea.startsWith("#")) continue;
+                if (linea.startsWith("\uFEFF")) linea = linea.substring(1).trim();
+                linea = linea.replace(';', ',');
 
-                // Formato: ##d##h##m-##d##h##m:x1,y1,...,xn,yn
+                // Formato: ##d##h##m-##d##h##m:x1,y1,...,xn,yn o con coma de separación
                 int posDosPuntos = linea.indexOf(':');
+                String ventanaTiempo;
+                String coords;
                 if (posDosPuntos != -1) {
-                    String ventanaTiempo = linea.substring(0, posDosPuntos).trim();
-                    String coords = linea.substring(posDosPuntos + 1).trim();
-
-                    String[] tiempos = ventanaTiempo.split("-");
-                    if (tiempos.length == 2) {
-                        LocalDateTime inicio = parsearFechaSimulada(tiempos[0].trim(), anio, mes);
-                        LocalDateTime fin = parsearFechaSimulada(tiempos[1].trim(), anio, mes);
-
-                        Bloqueo b = Bloqueo.builder()
-                                .codigo("BLOQ-" + numLinea + "-" + UUID.randomUUID().toString().substring(0, 6))
-                                .fechaHoraInicio(inicio)
-                                .fechaHoraFin(fin)
-                                .coordenadasNodos(coords)
-                                .activo(false)
-                                .archivoOrigen(new File(rutaArchivo).getName())
-                                .build();
-                        bloqueos.add(b);
+                    ventanaTiempo = linea.substring(0, posDosPuntos).trim();
+                    coords = linea.substring(posDosPuntos + 1).trim();
+                } else {
+                    int posGuion = linea.indexOf('-');
+                    int primeraComa = linea.indexOf(',');
+                    if (posGuion != -1 && primeraComa > posGuion) {
+                        ventanaTiempo = linea.substring(0, primeraComa).trim();
+                        coords = linea.substring(primeraComa + 1).trim();
+                    } else {
+                        continue;
                     }
+                }
+
+                String[] tiempos = ventanaTiempo.split("-");
+                if (tiempos.length == 2) {
+                    LocalDateTime inicio = parsearFechaSimulada(tiempos[0].trim(), anio, mes);
+                    LocalDateTime fin = parsearFechaSimulada(tiempos[1].trim(), anio, mes);
+
+                    Bloqueo b = Bloqueo.builder()
+                            .codigo("BLOQ-" + numLinea + "-" + UUID.randomUUID().toString().substring(0, 6))
+                            .fechaHoraInicio(inicio)
+                            .fechaHoraFin(fin)
+                            .coordenadasNodos(coords)
+                            .activo(false)
+                            .archivoOrigen(new File(rutaArchivo).getName())
+                            .build();
+                    bloqueos.add(b);
                 }
             }
         } catch (Exception e) {
@@ -210,14 +234,9 @@ public class CargadorArchivos {
         List<Averia> averias = new ArrayList<>();
         if (!validarFormato(rutaArchivo)) return averias;
 
-        // Año y mes desde el nombre del archivo (como en pedidos y bloqueos), no fijos en septiembre
-        int anio = 2026;
-        int mes = 9;
-        Matcher mAnioMes = Pattern.compile("\\.(\\d{4})(\\d{2})").matcher(new File(rutaArchivo).getName());
-        if (mAnioMes.find()) {
-            anio = Integer.parseInt(mAnioMes.group(1));
-            mes = Integer.parseInt(mAnioMes.group(2));
-        }
+        int[] anioMes = extraerAnioMes(rutaArchivo);
+        int anio = anioMes[0];
+        int mes = anioMes[1];
 
         try (BufferedReader br = new BufferedReader(new FileReader(rutaArchivo))) {
             String linea;
@@ -226,6 +245,8 @@ public class CargadorArchivos {
                 linea = linea.trim();
                 num++;
                 if (linea.isEmpty() || linea.startsWith("#")) continue;
+                if (linea.startsWith("\uFEFF")) linea = linea.substring(1).trim();
+                linea = linea.replace(';', ',');
                 String[] partes = linea.split(",");
                 if (partes.length >= 4) {
                     LocalDateTime fecha = parsearFechaSimulada(partes[0].trim(), anio, mes);
@@ -253,12 +274,18 @@ public class CargadorArchivos {
     }
 
     public static LocalDateTime parsearFechaSimulada(String texto, int anio, int mes) {
+        if (texto == null) return LocalDateTime.of(anio, mes, 1, 0, 0, 0);
+        texto = texto.replace("\uFEFF", "").trim();
         Matcher m = PATRON_FECHA.matcher(texto);
-        if (m.matches()) {
+        if (m.find()) {
             int dia = Integer.parseInt(m.group(1));
             int hora = Integer.parseInt(m.group(2));
             int min = Integer.parseInt(m.group(3));
-            return LocalDateTime.of(anio, mes, Math.max(1, dia), hora, min, 0);
+            int maxDias = java.time.YearMonth.of(anio, mes).lengthOfMonth();
+            dia = Math.min(Math.max(1, dia), maxDias);
+            hora = Math.min(Math.max(0, hora), 23);
+            min = Math.min(Math.max(0, min), 59);
+            return LocalDateTime.of(anio, mes, dia, hora, min, 0);
         }
         return LocalDateTime.of(anio, mes, 1, 0, 0, 0);
     }

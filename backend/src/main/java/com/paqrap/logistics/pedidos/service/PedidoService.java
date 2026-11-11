@@ -12,6 +12,7 @@ import com.paqrap.logistics.pedidos.model.Pedido;
 import com.paqrap.logistics.pedidos.repository.ClienteRepository;
 import com.paqrap.logistics.pedidos.repository.PedidoRepository;
 import com.paqrap.logistics.redvial.model.Ubicacion;
+import com.paqrap.logistics.simulacion.model.CargadorArchivos;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,25 @@ public class PedidoService {
     private final PedidoRepository pedidoRepository;
     private final ClienteRepository clienteRepository;
     private final ConfiguracionSemaforo configuracionSemaforo;
+    private final CargadorArchivos cargadorArchivos;
+
+    /**
+     * Carga y persiste pedidos desde un archivo plano (RF-26, RF-64).
+     */
+    @Transactional
+    public List<PedidoDTO> cargarArchivoPedidos(String rutaArchivo) {
+        List<Pedido> cargados = cargadorArchivos.cargarPedidos(rutaArchivo);
+        for (Pedido p : cargados) {
+            if (p.getCliente() != null) {
+                clienteRepository.findByIdCliente(p.getCliente().getIdCliente())
+                        .orElseGet(() -> clienteRepository.save(p.getCliente()));
+            }
+            p.evaluarCriticidad(configuracionSemaforo);
+        }
+        List<Pedido> guardados = pedidoRepository.saveAll(cargados);
+        log.info("Persistidos y procesados {} pedidos desde {}", guardados.size(), rutaArchivo);
+        return guardados.stream().map(this::mapearADTO).collect(Collectors.toList());
+    }
 
     /**
      * Registra un nuevo pedido con validación exhaustiva y generación automática de metadatos (RF-26 a RF-32).
