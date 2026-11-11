@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/mapa")
+@RequestMapping({"/api/mapa", "/mapa"})
 @RequiredArgsConstructor
 @Tag(name = "Monitorización y Mapa en Tiempo Real", description = "Endpoints para el estado del mapa, semáforos, bloqueos y alertas (RF-51 a RF-63)")
 public class VisualizadorController {
