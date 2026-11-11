@@ -31,7 +31,7 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/redvial")
+@RequestMapping({"/api/redvial", "/redvial"})
 @RequiredArgsConstructor
 @Tag(name = "Red Vial y Geografía", description = "Endpoints de la red vial ortogonal de 70x50 km y gestión de bloqueos (RF-01, RF-10, RF-11, RF-12)")
 public class RedVialController {

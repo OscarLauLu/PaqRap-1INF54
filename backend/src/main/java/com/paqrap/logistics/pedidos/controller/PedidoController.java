@@ -28,7 +28,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/pedidos")
+@RequestMapping({"/api/pedidos", "/pedidos"})
 @RequiredArgsConstructor
 @Tag(name = "Gestión de Pedidos", description = "Endpoints para el registro, consulta y ciclo de vida de pedidos (RF-26 a RF-38)")
 public class PedidoController {

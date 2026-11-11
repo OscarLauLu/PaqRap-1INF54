@@ -25,7 +25,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/planificacion")
+@RequestMapping({"/api/planificacion", "/planificacion"})
 @RequiredArgsConstructor
 @Tag(name = "Planificación de Rutas", description = "Endpoints para el cálculo, optimización y consulta de rutas de entrega (RF-01 a RF-16, RF-55)")
 public class PlanificacionController {

@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/flota")
+@RequestMapping({"/api/flota", "/flota"})
 @RequiredArgsConstructor
 @Tag(name = "Gestión de Flota", description = "Endpoints de administración de vehículos, conductores, averías y cambios en caliente (RF-39 a RF-50)")
 public class FlotaController {

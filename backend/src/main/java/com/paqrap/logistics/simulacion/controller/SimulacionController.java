@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/simulacion")
+@RequestMapping({"/api/simulacion", "/simulacion"})
 @RequiredArgsConstructor
 @Tag(name = "Simulación y Reportes", description = "Endpoints para la ejecución de escenarios, control del reloj y reporte de KPIs (RF-64 a RF-75)")
 public class SimulacionController {
