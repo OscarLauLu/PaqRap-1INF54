@@ -35,6 +35,14 @@ public class RedVial {
     @Getter
     private final int separacionNodosKm = 1;
 
+    /**
+     * true: un bloqueo cierra sus calles Y sus esquinas intermedias, así ningún vehículo lo cruza
+     * por una calle perpendicular (en el mapa se veía "atravesando" la línea negra del bloqueo).
+     * Los extremos del bloqueo siguen abiertos.
+     * false: solo se cierran las calles del bloqueo (comportamiento anterior).
+     */
+    public static final boolean BLOQUEAR_ESQUINAS_INTERMEDIAS = true;
+
     private final Nodo[][] mallaNodos = new Nodo[anchoKm + 1][altoKm + 1];
     private final Map<String, Tramo> tramos = new ConcurrentHashMap<>();
     private final Set<String> tramosBloqueadosActivos = ConcurrentHashMap.newKeySet();
@@ -244,56 +252,93 @@ public class RedVial {
         return tramosDirectos;
     }
 
+    /**
+     * Lee las esquinas de un bloqueo en cualquier formato: "30,15,35,15", "30,15 35,15",
+     * "(30,15) → (35,15)", "30, 15; 35, 15"... Toma todos los números y los agrupa de a dos (x, y).
+     * Antes se separaba solo por comas: con espacios, paréntesis o flechas fallaba el parseo y el
+     * bloqueo se dibujaba en el mapa, pero NO se cerraba en la red (las rutas pasaban por encima).
+     */
+    static List<int[]> esquinasDe(String coordenadas) {
+        List<int[]> puntos = new ArrayList<>();
+        if (coordenadas == null) return puntos;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("-?\\d+").matcher(coordenadas);
+        List<Integer> numeros = new ArrayList<>();
+        while (m.find()) numeros.add(Integer.parseInt(m.group()));
+        for (int i = 0; i + 1 < numeros.size(); i += 2) {
+            puntos.add(new int[]{numeros.get(i), numeros.get(i + 1)});
+        }
+        return puntos;
+    }
+
     public void aplicarBloqueo(Bloqueo bloqueo) {
         if (bloqueo == null || bloqueo.getCoordenadasNodos() == null) return;
         String clave = bloqueo.getFechaHoraInicio() + "|" + bloqueo.getFechaHoraFin() + "|" + bloqueo.getCoordenadasNodos().replace(" ", "");
         if (!bloqueosAplicados.add(clave)) return;   // ya estaba aplicado
-        String[] coords = bloqueo.getCoordenadasNodos().split(",");
+        List<int[]> esquinas = esquinasDe(bloqueo.getCoordenadasNodos());
         Set<String> aristas = new HashSet<>();
-        for (int i = 0; i + 3 < coords.length; i += 2) {
-            try {
-                int x1 = Integer.parseInt(coords[i].trim());
-                int y1 = Integer.parseInt(coords[i + 1].trim());
-                int x2 = Integer.parseInt(coords[i + 2].trim());
-                int y2 = Integer.parseInt(coords[i + 3].trim());
-                procesarBloqueoSegmento(x1, y1, x2, y2, true, bloqueo.getFechaHoraInicio(), bloqueo.getFechaHoraFin());
+        // Todas las esquinas por las que pasa el bloqueo, en orden (sirve para cerrar las intermedias)
+        List<int[]> recorrido = new ArrayList<>();
+        for (int i = 0; i + 1 < esquinas.size(); i++) {
+            int x1 = esquinas.get(i)[0];
+            int y1 = esquinas.get(i)[1];
+            int x2 = esquinas.get(i + 1)[0];
+            int y2 = esquinas.get(i + 1)[1];
+            procesarBloqueoSegmento(x1, y1, x2, y2, true, bloqueo.getFechaHoraInicio(), bloqueo.getFechaHoraFin());
 
-                int stepX = Integer.compare(x2, x1);
-                int stepY = Integer.compare(y2, y1);
-                int cx = x1;
-                int cy = y1;
-                while (cx != x2) {
-                    int nx = cx + stepX;
-                    aristas.add(obtenerClaveCanonica(cx, cy, nx, cy));
-                    cx = nx;
-                }
-                while (cy != y2) {
-                    int ny = cy + stepY;
-                    aristas.add(obtenerClaveCanonica(cx, cy, cx, ny));
-                    cy = ny;
-                }
-            } catch (Exception e) {
-                log.error("Error al parsear coordenadas de bloqueo: {}", e.getMessage());
+            int stepX = Integer.compare(x2, x1);
+            int stepY = Integer.compare(y2, y1);
+            int cx = x1;
+            int cy = y1;
+            if (recorrido.isEmpty()) recorrido.add(new int[]{cx, cy});
+            while (cx != x2) {
+                int nx = cx + stepX;
+                aristas.add(obtenerClaveCanonica(cx, cy, nx, cy));
+                cx = nx;
+                recorrido.add(new int[]{cx, cy});
+            }
+            while (cy != y2) {
+                int ny = cy + stepY;
+                aristas.add(obtenerClaveCanonica(cx, cy, cx, ny));
+                cy = ny;
+                recorrido.add(new int[]{cx, cy});
+            }
+        }
+        // Esquinas intermedias: se cierran todas sus calles para que nadie cruce el bloqueo de lado.
+        // El primer y el último nodo del bloqueo quedan abiertos.
+        if (BLOQUEAR_ESQUINAS_INTERMEDIAS && recorrido.size() > 2) {
+            for (int i = 1; i < recorrido.size() - 1; i++) {
+                agregarCallesDeEsquina(recorrido.get(i)[0], recorrido.get(i)[1], aristas);
             }
         }
         if (!aristas.isEmpty()) {
             listaBloqueos.add(new BloqueoVialInfo(bloqueo.getFechaHoraInicio(), bloqueo.getFechaHoraFin(), aristas));
+            log.info("Bloqueo {} aplicado en la red: {} esquinas, {} calles cerradas ({} a {})",
+                    bloqueo.getCodigo(), recorrido.size(), aristas.size(),
+                    bloqueo.getFechaHoraInicio(), bloqueo.getFechaHoraFin());
+        } else {
+            log.warn("Bloqueo {} NO se pudo aplicar en la red: coordenadas no reconocidas '{}'",
+                    bloqueo.getCodigo(), bloqueo.getCoordenadasNodos());
+        }
+    }
+
+    /** Agrega a {@code aristas} las (hasta 4) calles que salen de la esquina (x, y) */
+    private void agregarCallesDeEsquina(int x, int y, Set<String> aristas) {
+        int[][] direcciones = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int[] d : direcciones) {
+            int nx = x + d[0];
+            int ny = y + d[1];
+            if (nx >= 0 && nx <= anchoKm && ny >= 0 && ny <= altoKm) {
+                aristas.add(obtenerClaveCanonica(x, y, nx, ny));
+            }
         }
     }
 
     public void removerBloqueo(Bloqueo bloqueo) {
         if (bloqueo == null || bloqueo.getCoordenadasNodos() == null) return;
-        String[] coords = bloqueo.getCoordenadasNodos().split(",");
-        for (int i = 0; i + 3 < coords.length; i += 2) {
-            try {
-                int x1 = Integer.parseInt(coords[i].trim());
-                int y1 = Integer.parseInt(coords[i + 1].trim());
-                int x2 = Integer.parseInt(coords[i + 2].trim());
-                int y2 = Integer.parseInt(coords[i + 3].trim());
-                procesarBloqueoSegmento(x1, y1, x2, y2, false, null, null);
-            } catch (Exception e) {
-                log.error("Error al remover tramo bloqueado: {}", e.getMessage());
-            }
+        List<int[]> esquinas = esquinasDe(bloqueo.getCoordenadasNodos());
+        for (int i = 0; i + 1 < esquinas.size(); i++) {
+            procesarBloqueoSegmento(esquinas.get(i)[0], esquinas.get(i)[1],
+                    esquinas.get(i + 1)[0], esquinas.get(i + 1)[1], false, null, null);
         }
     }
 

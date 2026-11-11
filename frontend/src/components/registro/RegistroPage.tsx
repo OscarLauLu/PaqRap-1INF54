@@ -3,6 +3,7 @@ import { Car, ClipboardList, Construction, Loader2, Upload, Wrench } from 'lucid
 import { usePedidosRegistro } from '../../hooks/usePedidosRegistro';
 import type { NuevoPedidoDatos } from '../../types/registro';
 import { archivosApi } from '../../api/archivosApi';
+import { pedidosApi } from '../../api/pedidosApi';
 import { FormularioPedido } from './FormularioPedido';
 import { TablaPedidos } from './TablaPedidos';
 import { PestanaAverias } from './PestanaAverias';
@@ -22,7 +23,7 @@ export const RegistroPage: React.FC = () => {
   const [pestana, setPestana] = useState<Pestana>('pedidos');
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [subiendoArchivo, setSubiendoArchivo] = useState(false);
-  const { pedidos, cargando, registrar } = usePedidosRegistro();
+  const { pedidos, cargando, registrar, recargar } = usePedidosRegistro();
   const inputArchivo = useRef<HTMLInputElement>(null);
 
   const handleRegistrar = async (datos: NuevoPedidoDatos) => {
@@ -40,10 +41,11 @@ export const RegistroPage: React.FC = () => {
     if (!archivo) return;
     setSubiendoArchivo(true);
     try {
-      await archivosApi.subir(archivo, 'pedidos');
-      setMensaje(`Archivo "${archivo.name}" subido. Quedará disponible para usarse al configurar la simulación.`);
+      const cargados = await pedidosApi.subirArchivo(archivo);
+      recargar();
+      setMensaje(`Archivo "${archivo.name}" procesado: ${cargados.length} pedido(s) registrados en el servidor.`);
     } catch {
-      setMensaje('No se pudo subir el archivo.');
+      setMensaje('No se pudo procesar el archivo de pedidos. Revisa el formato (##d##h##m,posX,posY,idCliente,cant,plazo).');
     } finally {
       setSubiendoArchivo(false);
     }
