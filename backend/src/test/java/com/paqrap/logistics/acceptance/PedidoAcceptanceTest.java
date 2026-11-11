@@ -9,7 +9,7 @@ import com.paqrap.logistics.pedidos.controller.PedidoController;
 import com.paqrap.logistics.pedidos.dto.ActualizarPedidoDTO;
 import com.paqrap.logistics.pedidos.dto.CrearPedidoDTO;
 import com.paqrap.logistics.pedidos.dto.PedidoDTO;
-import com.paqrap.logistics.pedidos.model.CriticidadSemaforo;
+import com.paqrap.logistics.pedidos.model.NivelCriticidad;
 import com.paqrap.logistics.pedidos.model.EstadoPedido;
 import com.paqrap.logistics.pedidos.model.TipoEntrega;
 import com.paqrap.logistics.pedidos.service.PedidoService;
@@ -71,7 +71,7 @@ public class PedidoAcceptanceTest {
         pedidoMock = PedidoDTO.builder()
                 .id(1L)
                 .codigo("PED-001")
-                .idCliente("CLI-001")
+                .clienteId("CLI-001")
                 .nombreCliente("Comercial Andina SAC")
                 .destino(new Ubicacion(35, 25))
                 .cantidadUnidades(10)
@@ -80,7 +80,7 @@ public class PedidoAcceptanceTest {
                 .fechaHoraRegistro(ahora)
                 .plazoLimiteEntrega(ahora.plusHours(36))
                 .holguraHoras(36.0)
-                .criticidad(CriticidadSemaforo.VERDE)
+                .nivelCriticidad(NivelCriticidad.VERDE)
                 .build();
     }
 

@@ -9,13 +9,15 @@ import type { Almacen, UnidadTransporte } from '../types';
 export type CapaMapa = string;
 
 export type SemaforoUT = 'TODOS' | 'VACIO' | 'VERDE' | 'AMBAR' | 'ROJO';
+export type SemaforoAlmacen = 'TODOS' | 'VACIO' | 'VERDE' | 'AMBAR' | 'ROJO';
 
 export interface FiltrosPanel {
   ocultos: CapaMapa[];
   semaforoUT?: SemaforoUT;
+  semaforoAlmacen?: SemaforoAlmacen;
 }
 
-export const FILTROS_VACIOS: FiltrosPanel = { ocultos: [], semaforoUT: 'TODOS' };
+export const FILTROS_VACIOS: FiltrosPanel = { ocultos: [], semaforoUT: 'TODOS', semaforoAlmacen: 'TODOS' };
 
 /** Capa de un almacén concreto */
 export const capaAlmacen = (a: Almacen): CapaMapa => `ALM:${a.codigo}`;
@@ -52,9 +54,15 @@ export const pasaFiltroUnidad = (u: UnidadTransporte, f?: FiltrosPanel): boolean
   return true;
 };
 
-/** El almacén se dibuja si no está oculto */
-export const pasaFiltroAlmacen = (a: Almacen, f?: FiltrosPanel): boolean =>
-  !f || !f.ocultos.includes(capaAlmacen(a));
+/** El almacén se dibuja si no está oculto y coincide con el semáforo seleccionado (Sí4) */
+export const pasaFiltroAlmacen = (a: Almacen, f?: FiltrosPanel): boolean => {
+  if (!f) return true;
+  if (f.ocultos.includes(capaAlmacen(a))) return false;
+  if (f.semaforoAlmacen && f.semaforoAlmacen !== 'TODOS') {
+    if (nivelSemaforoAlmacen(a) !== f.semaforoAlmacen) return false;
+  }
+  return true;
+};
 
 /** Muestra u oculta una capa */
 export const alternarCapa = (f: FiltrosPanel, capa: CapaMapa): FiltrosPanel => ({

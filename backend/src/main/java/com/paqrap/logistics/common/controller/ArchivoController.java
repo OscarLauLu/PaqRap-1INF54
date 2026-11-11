@@ -21,7 +21,7 @@ import java.util.Map;
  * por sí mismo: solo deja el archivo listo, igual que el resto de flujos basados en ruta de archivo.
  */
 @RestController
-@RequestMapping("/api/archivos")
+@RequestMapping({"/api/archivos", "/archivos"})
 @RequiredArgsConstructor
 @Tag(name = "Carga de Archivos", description = "Sube archivos planos de pedidos/bloqueos al servidor para usarlos al configurar una simulación (RF-64)")
 public class ArchivoController {

@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/almacenes")
+@RequestMapping({"/api/almacenes", "/almacenes"})
 @RequiredArgsConstructor
 @Tag(name = "Almacenes e Inventario", description = "Endpoints para stock de almacenes, recarga diaria y movimientos (RF-17 a RF-25)")
 public class AlmacenController {
