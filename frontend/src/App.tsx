@@ -61,8 +61,9 @@ export const App: React.FC = () => {
   } = useSimulacion(1000);
   const { unidades, selectedUnidadCodigo, setSelectedUnidadCodigo } = useFlota(4000);
   const { pedidos } = useMapaOperaciones(4000);
-  const { metricas } = useMetricas(5000);
   const [selectedAlmacenCodigo, setSelectedAlmacenCodigo] = useState<string | null>(null);
+  const [selectedPedidoCodigo, setSelectedPedidoCodigo] = useState<string | null>(null);
+  const [selectedProductoId, setSelectedProductoId] = useState<string | null>(null);
 
   // Reloj en tiempo real presente y tiempo transcurrido real (reloj de pared)
   const [relojReal, setRelojReal] = useState<Date>(() => new Date());
@@ -388,25 +389,43 @@ export const App: React.FC = () => {
             {/* Barra superior con los 4 tiempos (los indicadores globales están sobre el mapa) */}
             <div className="flex flex-wrap justify-between items-center gap-3 mb-4 px-1 text-xs md:text-sm">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                {/* Momento simulado */}
-                <div className="text-ink-400 font-semibold">
-                  Simulado: <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
-                </div>
+                {esOperacion ? (
+                  <>
+                    {/* Operación día a día: 2 datos de tiempo (momento actual y tiempo transcurrido) */}
+                    <div className="text-ink-400 font-semibold">
+                      Fecha y hora: <span className="text-ink-900 font-bold ml-1">{relojReal.toLocaleDateString('es-PE')} {relojReal.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
 
-                <div className="flex items-center text-ink-400 font-semibold">
-                  <ClockIcon className="w-4 h-4 mr-1 text-brand-500" /> Transcurrido:
-                  <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
-                </div>
+                    <div className="flex items-center text-ink-400 font-semibold">
+                      <ClockIcon className="w-4 h-4 mr-1 text-brand-500" /> Transcurrido:
+                      <span className="text-ink-900 font-bold ml-1">{getTranscurridoReal()}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Simulaciones (5D y Colapso): 4 datos de tiempo */}
+                    {/* 1. Momento simulado */}
+                    <div className="text-ink-400 font-semibold">
+                      Simulado: <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : formatFecha(reloj.instanteActual)}</span>
+                    </div>
 
-                <div className="text-ink-400 font-semibold">
-                  Día: <span className="text-ink-900 font-bold ml-1">{diaActual}</span>
-                </div>
+                    {/* 2. Tiempo transcurrido simulado */}
+                    <div className="flex items-center text-ink-400 font-semibold">
+                      <ClockIcon className="w-4 h-4 mr-1 text-brand-500" /> Transcurrido:
+                      <span className="text-ink-900 font-bold ml-1">{sinDatos ? '--' : getTranscurrido()}</span>
+                    </div>
 
-                {/* Momento real presente (reloj de pared) */}
-                <div className="text-ink-400 font-semibold border-l border-gray-200 pl-4">
-                  Hora real: <span className="text-ink-900 font-bold ml-1">{relojReal.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                  <span className="text-gray-400 font-normal ml-1">({getTranscurridoReal()})</span>
-                </div>
+                    <div className="text-ink-400 font-semibold">
+                      Día: <span className="text-ink-900 font-bold ml-1">{diaActual}</span>
+                    </div>
+
+                    {/* 3 y 4. Momento actual (hora real) y tiempo transcurrido real */}
+                    <div className="text-ink-400 font-semibold border-l border-gray-200 pl-4">
+                      Hora real: <span className="text-ink-900 font-bold ml-1">{relojReal.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                      <span className="text-gray-400 font-normal ml-1">({getTranscurridoReal()})</span>
+                    </div>
+                  </>
+                )}
 
                 {/* Estados */}
                 {esOperacion && motorCorriendo && (
@@ -515,6 +534,8 @@ export const App: React.FC = () => {
                       onSelectUnidad={setSelectedUnidadCodigo}
                       selectedAlmacenCodigo={selectedAlmacenCodigo}
                       onSelectAlmacen={setSelectedAlmacenCodigo}
+                      selectedPedidoCodigo={selectedPedidoCodigo}
+                      onSelectPedido={setSelectedPedidoCodigo}
                       escenario={NOMBRE_ESCENARIO[escenarioSel]}
                       pausado={estaPausada}
                       reloj={{
@@ -549,8 +570,16 @@ export const App: React.FC = () => {
                       metricas={metricas}
                       selectedUnidadCodigo={selectedUnidadCodigo}
                       selectedAlmacenCodigo={selectedAlmacenCodigo}
+                      selectedPedidoCodigo={selectedPedidoCodigo}
+                      selectedProductoId={selectedProductoId}
                       onSelectUnidad={setSelectedUnidadCodigo}
                       onSelectAlmacen={setSelectedAlmacenCodigo}
+                      onSelectPedido={setSelectedPedidoCodigo}
+                      onSelectProducto={(codPed, prodId, uCod) => {
+                        setSelectedPedidoCodigo(codPed);
+                        setSelectedProductoId(prodId);
+                        if (uCod) setSelectedUnidadCodigo(uCod);
+                      }}
                       rutas={rutasMapa}
                       modo={esOperacion ? 'operacion' : 'simulacion'}
                       filtros={filtros}

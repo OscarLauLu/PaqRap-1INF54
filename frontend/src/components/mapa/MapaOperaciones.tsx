@@ -46,6 +46,8 @@ interface MapaOperacionesProps {
   onSelectUnidad: (codigo: string) => void;
   selectedAlmacenCodigo?: string | null;
   onSelectAlmacen?: (codigo: string) => void;
+  selectedPedidoCodigo?: string | null;
+  onSelectPedido?: (codigo: string) => void;
   /** Nombre del escenario para el título de la leyenda (opcional) */
   escenario?: string;
   /** Si la simulación está en pausa, los vehículos se congelan donde están */
@@ -258,6 +260,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   onSelectUnidad,
   selectedAlmacenCodigo,
   onSelectAlmacen,
+  selectedPedidoCodigo,
+  onSelectPedido,
   escenario,
   pausado = false,
   reloj,
@@ -913,10 +917,10 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           if (r.puntos.length < 2) return null;
           const unidadRuta = unidades.find((u) => u.codigo === r.unidadCodigo);
           if (unidadRuta && !pasaFiltroUnidad(unidadRuta, filtros)) return null; // vehículo oculto con los filtros
-          const colorRuta = unidadRuta ? COLOR_TIPO[unidadRuta.tipoNombre] ?? '#6B7280' : '#6B7280';
-          const codigoSel = seleccion?.tipo === 'vehiculo' ? seleccion.codigo : null;
-          const esSel = codigoSel === r.unidadCodigo;
-          const hayOtraSel = !!codigoSel && !esSel;
+          const codigoSel = seleccion?.tipo === 'vehiculo' ? seleccion.codigo : selectedUnidadCodigo;
+          const contienePedidoSel = !!selectedPedidoCodigo && (r.codigosPedidos?.includes(selectedPedidoCodigo) ?? false);
+          const esSel = (codigoSel === r.unidadCodigo) || contienePedidoSel;
+          const hayOtraSel = (!!codigoSel && !esSel) || (!!selectedPedidoCodigo && !contienePedidoSel);
           let d: string;
           const trazado = trazados.get(r.unidadCodigo);
           const dibujado = recorrido.current.get(r.unidadCodigo);
@@ -951,10 +955,10 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
               }}
               d={d}
               fill="none"
-              stroke={colorRuta}
-              strokeOpacity={esSel ? 1 : hayOtraSel ? 0.25 : 0.6}
-              strokeWidth={esSel ? 0.22 : 0.13}
-              strokeDasharray="0.45 0.3"
+              stroke={contienePedidoSel ? '#2563EB' : colorRuta}
+              strokeOpacity={esSel ? 1 : hayOtraSel ? 0.2 : 0.6}
+              strokeWidth={contienePedidoSel ? 0.26 : esSel ? 0.22 : 0.13}
+              strokeDasharray={contienePedidoSel ? undefined : '0.45 0.3'}
               strokeLinecap="round"
               strokeLinejoin="round"
               className="pointer-events-none"
@@ -993,17 +997,23 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           const px = toSvgX(p.destino.posX);
           const py = toSvgY(p.destino.posY);
           const color = COLOR_CRITICIDAD[p.criticidad] ?? '#2563EB';
-          return (
-            <g
-              key={`pedido-${p.id}`}
-              data-sel={`pedido:${p.codigo}`}
-              className="cursor-pointer"
-              onClick={(e) => clicIcono(e, { tipo: 'pedido', codigo: p.codigo })}
-            >
-              <title>{`Pedido ${p.codigo}`}</title>
-              {seleccion?.tipo === 'pedido' && seleccion.codigo === p.codigo && (
-                <circle cx={px} cy={py - TAMANO_ICONO * 0.6} r={TAMANO_ICONO * 0.75} fill="none" stroke="#60A5FA" strokeWidth="0.15" className="animate-pulse" />
-              )}
+            const esPedidoSel =
+              (seleccion?.tipo === 'pedido' && seleccion.codigo === p.codigo) ||
+              selectedPedidoCodigo === p.codigo;
+            return (
+              <g
+                key={`pedido-${p.id}`}
+                data-sel={`pedido:${p.codigo}`}
+                className="cursor-pointer"
+                onClick={(e) => {
+                  onSelectPedido?.(p.codigo);
+                  clicIcono(e, { tipo: 'pedido', codigo: p.codigo });
+                }}
+              >
+                <title>{`Pedido ${p.codigo}`}</title>
+                {esPedidoSel && (
+                  <circle cx={px} cy={py - TAMANO_ICONO * 0.6} r={TAMANO_ICONO * 0.85} fill="none" stroke="#2563EB" strokeWidth="0.18" className="animate-pulse" />
+                )}
               <g transform={`translate(${px}, ${py}) scale(${ESCALA_PIN})`} filter="url(#sombraIcono)">
                 <PinPedido color={color} />
               </g>
