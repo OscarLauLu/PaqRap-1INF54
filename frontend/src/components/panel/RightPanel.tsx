@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, AlertCircle, AlertTriangle, CheckCircle2, ClipboardList, Car as CarIcon, Siren, Wrench, Save, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, AlertCircle, AlertTriangle, CheckCircle2, ClipboardList, Car as CarIcon, Siren, Wrench, Save, Loader2, Package } from 'lucide-react';
 import { RelojSimuladoData, Almacen, UnidadTransporte, Pedido, MetricasSimulacion, ESTADO_PEDIDO_LABEL } from '../../types';
 import type { TipoAveria } from '../../types/registro';
 import { averiasApi } from '../../api/averiasApi';
@@ -9,6 +9,7 @@ import { Bodega, VehiculoRealista } from '../mapa/IconosMapa';
 import { FILTROS_VACIOS, alternarCapa, capaAlmacen, type CapaMapa, type FiltrosPanel, type SemaforoUT } from '../../hooks/filtros';
 import { ListaUnidadesPanel } from './ListaUnidadesPanel';
 import { ListaAlmacenesPanel } from './ListaAlmacenesPanel';
+import { ListaEnviosPanel } from './ListaEnviosPanel';
 
 const TIPOS_AVERIA: { valor: TipoAveria; etiqueta: string }[] = [
   { valor: 'TIPO_1', etiqueta: 'Tipo 1 — 2 h en el lugar' },
@@ -29,8 +30,12 @@ interface RightPanelProps {
   metricas: MetricasSimulacion;
   selectedUnidadCodigo: string | null;
   selectedAlmacenCodigo?: string | null;
+  selectedPedidoCodigo?: string | null;
+  selectedProductoId?: string | null;
   onSelectUnidad?: (codigo: string) => void;
   onSelectAlmacen?: (codigo: string) => void;
+  onSelectPedido?: (codigo: string) => void;
+  onSelectProducto?: (codigoPedido: string, productoId: string, unidadCodigo?: string) => void;
   rutas?: Array<{ unidadCodigo: string; codigosPedidos?: string[] }>;
   filtros?: FiltrosPanel;
   onCambiarFiltros?: (filtros: FiltrosPanel) => void;
@@ -181,8 +186,12 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   metricas,
   selectedUnidadCodigo,
   selectedAlmacenCodigo = null,
+  selectedPedidoCodigo = null,
+  selectedProductoId = null,
   onSelectUnidad = () => {},
   onSelectAlmacen = () => {},
+  onSelectPedido = () => {},
+  onSelectProducto = () => {},
   rutas = [],
   filtros: filtrosProp,
   onCambiarFiltros,
@@ -391,6 +400,32 @@ export const RightPanel: React.FC<RightPanelProps> = ({
             })}
           </div>
         </div>
+
+        {/* Filtro global por semáforo de ocupación de Almacenes (Sí4) */}
+        <div className="pt-2.5 mt-2.5 border-t border-gray-100">
+          <span className="block text-[11px] font-bold text-(--color-ink-500) mb-1.5 uppercase tracking-wide">
+            Filtrar almacenes por semáforo de stock (Sí4)
+          </span>
+          <div className="flex items-center gap-1">
+            {(['TODOS', 'VACIO', 'VERDE', 'AMBAR', 'ROJO'] as const).map((sem) => {
+              const activo = (filtros.semaforoAlmacen ?? 'TODOS') === sem;
+              return (
+                <button
+                  key={sem}
+                  type="button"
+                  onClick={() => setFiltros({ ...filtros, semaforoAlmacen: sem })}
+                  className={`flex-1 py-1 rounded text-[11px] font-bold border transition-colors ${
+                    activo
+                      ? 'bg-(--color-brand-500) text-white border-(--color-brand-500)'
+                      : 'bg-white text-(--color-ink-700) border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {sem === 'TODOS' ? 'Todos' : sem === 'VACIO' ? 'Vacío' : sem === 'VERDE' ? 'Óptimo' : sem === 'AMBAR' ? 'Medio' : 'Crítico'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </Tarjeta>
 
       {/* Registrar avería: en la operación diaria y en las simulaciones, porque las averías ocurren en plena marcha */}
@@ -553,6 +588,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
               onSelectUnidad={onSelectUnidad}
               filtroSemaforo={filtros.semaforoUT}
               onCambiarFiltroSemaforo={(sem) => setFiltros({ ...filtros, semaforoUT: sem })}
+              reloj={reloj}
             />
           </div>
         </div>
@@ -566,6 +602,25 @@ export const RightPanel: React.FC<RightPanelProps> = ({
           reloj={reloj}
           selectedAlmacenCodigo={selectedAlmacenCodigo}
           onSelectAlmacen={onSelectAlmacen}
+        />
+      </Tarjeta>
+
+      {/* ===== Envíos y productos: UTs, rutas, Identificadores de productos y enlace al mapa (Sí4) ===== */}
+      <Tarjeta
+        titulo={`Envíos y productos (${pedidos.length})`}
+        Icono={Package}
+        abierta={abiertas.has('envios')}
+        onToggle={() => toggleSection('envios')}
+      >
+        <ListaEnviosPanel
+          pedidos={pedidos}
+          selectedPedidoCodigo={selectedPedidoCodigo}
+          selectedProductoId={selectedProductoId}
+          onSelectEnvio={(cod) => onSelectPedido(cod)}
+          onSelectProducto={(codPed, prodId, uCod) => {
+            onSelectProducto(codPed, prodId, uCod);
+            if (uCod) onSelectUnidad(uCod);
+          }}
         />
       </Tarjeta>
 

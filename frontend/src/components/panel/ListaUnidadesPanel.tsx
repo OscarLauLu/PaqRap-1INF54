@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownUp, ChevronDown, ChevronRight, Package, CheckCircle2 } from 'lucide-react';
-import type { Pedido, UnidadTransporte } from '../../types';
+import { ArrowDownUp, ChevronDown, ChevronRight, Package, CheckCircle2, Search, X } from 'lucide-react';
+import type { Pedido, RelojSimuladoData, UnidadTransporte } from '../../types';
 import { nivelSemaforoUT, type SemaforoUT } from '../../hooks/filtros';
 import { VehiculoRealista } from '../mapa/IconosMapa';
 import { rutasApi, type RutaApi } from '../../api/rutasApi';
@@ -20,6 +20,7 @@ interface ListaUnidadesPanelProps {
   onSelectUnidad: (codigo: string) => void;
   filtroSemaforo?: SemaforoUT;
   onCambiarFiltroSemaforo?: (sem: SemaforoUT) => void;
+  reloj?: RelojSimuladoData;
 }
 
 const COLOR_TIPO: Record<string, string> = {
@@ -38,13 +39,15 @@ const SEMAFORO_CONFIG: Record<
   ROJO: { etiqueta: 'Lleno', badgeClase: 'bg-red-50 text-red-700 border-red-300', dotColor: '#EF4444' },
 };
 
-// Ordenamientos de la lista: ocupación, hora de salida del almacén (E14) y código
-type Orden = 'desc' | 'asc' | 'salidaAsc' | 'salidaDesc' | 'codigo';
+// Ordenamientos de la lista: ocupación, hora de salida y hora de llegada a su destino (Sí4)
+type Orden = 'desc' | 'asc' | 'salidaAsc' | 'salidaDesc' | 'llegadaAsc' | 'llegadaDesc' | 'codigo';
 const ORDENES: { valor: Orden; etiqueta: string }[] = [
   { valor: 'desc', etiqueta: 'Ocupación: Mayor a Menor' },
   { valor: 'asc', etiqueta: 'Ocupación: Menor a Mayor' },
-  { valor: 'salidaAsc', etiqueta: 'Salida: Más temprana' },
-  { valor: 'salidaDesc', etiqueta: 'Salida: Más tardía' },
+  { valor: 'salidaAsc', etiqueta: 'Hora salida: Más temprana (Asc)' },
+  { valor: 'salidaDesc', etiqueta: 'Hora salida: Más tardía (Desc)' },
+  { valor: 'llegadaAsc', etiqueta: 'Hora llegada: Más temprana (Asc)' },
+  { valor: 'llegadaDesc', etiqueta: 'Hora llegada: Más tardía (Desc)' },
   { valor: 'codigo', etiqueta: 'Por Código' },
 ];
 
@@ -66,10 +69,18 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
   onSelectUnidad,
   filtroSemaforo = 'TODOS',
   onCambiarFiltroSemaforo,
+  reloj,
 }) => {
   const [orden, setOrden] = useState<Orden>('desc');
   const [expandido, setExpandido] = useState<string | null>(null);
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Búsqueda de vehículos por texto (código o tipo)
+  const [busquedaTexto, setBusquedaTexto] = useState<string>('');
+
+  // Búsqueda por distancia en minutos: destino inmediato (llegada) u origen (salida) (Sí4)
+  const [busquedaTipo, setBusquedaTipo] = useState<'destino' | 'origen'>('destino');
+  const [filtroMinutos, setFiltroMinutos] = useState<string>('');
 
   // Rutas con sus horas (salida del almacén y llegada a cada cliente), para ordenar y medir entregas
   const [rutasHorario, setRutasHorario] = useState<RutaApi[]>([]);
@@ -99,21 +110,61 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
     return map;
   }, [rutas]);
 
-  // Por unidad: hora de salida de su ruta en curso y el tiempo de cada entrega (todas sus rutas)
+  // Por unidad: horas de salida, llegada a destino, distancias en minutos y tiempos de entrega
   const horarioDeUnidad = useMemo(() => {
     const salida = new Map<string, number>();
     const salidaTexto = new Map<string, string>();
+    const llegadaDestino = new Map<string, number>();
+    const llegadaDestinoTexto = new Map<string, string>();
+    const minutosOrigen = new Map<string, number>();
+    const minutosDestino = new Map<string, number>();
     const tiempos = new Map<string, TiempoEntrega[]>();
+
+    const ahoraMs = parsearFechaLocal(reloj?.instanteActual);
+
     rutasHorario.forEach((r) => {
       const salidaMs = parsearFechaLocal(r.fechaHoraGeneracion);
       if (salidaMs === null) return;
-      // Ruta en curso: la que no está completada y sale primero (igual criterio que el mapa)
+
+      const actual = salida.get(r.unidadCodigo);
+
+      // Ruta en curso: la que no está completada y sale primero
       if (r.estado !== 'COMPLETADA') {
-        const actual = salida.get(r.unidadCodigo);
         if (actual === undefined || salidaMs < actual) {
           salida.set(r.unidadCodigo, salidaMs);
           salidaTexto.set(r.unidadCodigo, horaCorta(r.fechaHoraGeneracion));
+
+          // Distancia en minutos al origen (almacén de salida)
+          if (ahoraMs !== null && ahoraMs >= salidaMs) {
+            minutosOrigen.set(r.unidadCodigo, Math.round((ahoraMs - salidaMs) / 60000));
+          } else {
+            minutosOrigen.set(r.unidadCodigo, 0);
+          }
+
+          // Destino inmediato: próxima parada pendiente o regreso a almacén
+          const paradasPendientes = (r.paradas || []).filter((p) => !p.entregada);
+          let proxLlegadaMs: number | null = null;
+          let proxLlegadaTxt = '';
+
+          if (paradasPendientes.length > 0) {
+            proxLlegadaMs = parsearFechaLocal(paradasPendientes[0].horaEstimadaLlegada);
+            proxLlegadaTxt = horaCorta(paradasPendientes[0].horaEstimadaLlegada);
+          } else if (r.horaLlegadaAlmacen) {
+            proxLlegadaMs = parsearFechaLocal(r.horaLlegadaAlmacen);
+            proxLlegadaTxt = horaCorta(r.horaLlegadaAlmacen);
+          }
+
+          if (proxLlegadaMs !== null) {
+            llegadaDestino.set(r.unidadCodigo, proxLlegadaMs);
+            llegadaDestinoTexto.set(r.unidadCodigo, proxLlegadaTxt);
+            const refMs = ahoraMs ?? salidaMs;
+            minutosDestino.set(r.unidadCodigo, Math.max(0, Math.round((proxLlegadaMs - refMs) / 60000)));
+          }
         }
+      } else if (actual === undefined) {
+        // Fallback para unidades que solo tienen rutas completadas
+        salida.set(r.unidadCodigo, salidaMs);
+        salidaTexto.set(r.unidadCodigo, horaCorta(r.fechaHoraGeneracion));
       }
       (r.paradas || []).forEach((p) => {
         const llegadaMs = parsearFechaLocal(p.horaEstimadaLlegada);
@@ -123,8 +174,8 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
         tiempos.set(r.unidadCodigo, lista);
       });
     });
-    return { salida, salidaTexto, tiempos };
-  }, [rutasHorario]);
+    return { salida, salidaTexto, llegadaDestino, llegadaDestinoTexto, minutosOrigen, minutosDestino, tiempos };
+  }, [rutasHorario, reloj?.instanteActual]);
 
   // Auto-scroll al seleccionar desde el mapa
   useEffect(() => {
@@ -140,22 +191,58 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
   const unidadesFiltradas = useMemo(() => {
     let lista = [...unidades];
 
+    // Búsqueda por texto (código, placa o tipo de vehículo)
+    if (busquedaTexto.trim() !== '') {
+      const q = busquedaTexto.trim().toLowerCase();
+      lista = lista.filter(
+        (u) =>
+          u.codigo.toLowerCase().includes(q) ||
+          u.tipoNombre.toLowerCase().includes(q) ||
+          (u.placa && u.placa.toLowerCase().includes(q))
+      );
+    }
+
     if (filtroSemaforo && filtroSemaforo !== 'TODOS') {
       lista = lista.filter((u) => nivelSemaforoUT(u) === filtroSemaforo);
+    }
+
+    // Filtro por distancia en minutos al destino inmediato o al origen (Sí4)
+    if (filtroMinutos.trim() !== '') {
+      const maxMin = Number(filtroMinutos);
+      if (!isNaN(maxMin)) {
+        lista = lista.filter((u) => {
+          if (busquedaTipo === 'destino') {
+            const m = horarioDeUnidad.minutosDestino.get(u.codigo);
+            return m !== undefined && m <= maxMin;
+          } else {
+            const m = horarioDeUnidad.minutosOrigen.get(u.codigo);
+            return m !== undefined && m <= maxMin;
+          }
+        });
+      }
     }
 
     lista.sort((a, b) => {
       if (orden === 'codigo') {
         return a.codigo.localeCompare(b.codigo, undefined, { numeric: true });
       }
+      // Ordenar por hora de salida (Ascendente / Descendente) (Sí4)
       if (orden === 'salidaAsc' || orden === 'salidaDesc') {
-        // Las unidades sin ruta (sin hora de salida) van siempre al final
         const sa = horarioDeUnidad.salida.get(a.codigo);
         const sb = horarioDeUnidad.salida.get(b.codigo);
         if (sa === undefined && sb === undefined) return a.codigo.localeCompare(b.codigo, undefined, { numeric: true });
         if (sa === undefined) return 1;
         if (sb === undefined) return -1;
         return orden === 'salidaAsc' ? sa - sb : sb - sa;
+      }
+      // Ordenar por hora de llegada a su destino (cliente/almacén) (Ascendente / Descendente) (Sí4)
+      if (orden === 'llegadaAsc' || orden === 'llegadaDesc') {
+        const la = horarioDeUnidad.llegadaDestino.get(a.codigo);
+        const lb = horarioDeUnidad.llegadaDestino.get(b.codigo);
+        if (la === undefined && lb === undefined) return a.codigo.localeCompare(b.codigo, undefined, { numeric: true });
+        if (la === undefined) return 1;
+        if (lb === undefined) return -1;
+        return orden === 'llegadaAsc' ? la - lb : lb - la;
       }
       const capA = a.capacidadMaxima || 1;
       const capB = b.capacidadMaxima || 1;
@@ -165,28 +252,143 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
     });
 
     return lista;
-  }, [unidades, filtroSemaforo, orden, horarioDeUnidad]);
+  }, [unidades, busquedaTexto, filtroSemaforo, filtroMinutos, busquedaTipo, orden, horarioDeUnidad]);
 
   return (
     <div className="space-y-3">
-      {/* Controles: Ordenamiento y Filtro rápido de semáforo */}
+      {/* Controles: Búsqueda, Ordenamiento por Hora de Salida, Semáforo y Distancia en minutos */}
       <div className="space-y-2">
+        {/* Cabecera y contador */}
         <div className="flex items-center justify-between gap-2 text-xs">
           <span className="font-semibold text-(--color-ink-500)">
             {unidadesFiltradas.length} de {unidades.length} unidades
           </span>
+          <span className="text-[11px] font-medium text-brand-600 bg-brand-50 px-2 py-0.5 rounded border border-brand-200 truncate max-w-[190px]">
+            {ORDENES.find((o) => o.valor === orden)?.etiqueta}
+          </span>
+        </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              setOrden((prev) => ORDENES[(ORDENES.findIndex((o) => o.valor === prev) + 1) % ORDENES.length].valor)
-            }
-            className="flex items-center gap-1 font-semibold text-(--color-brand-500) hover:text-(--color-brand-600) bg-gray-50 border border-gray-200 px-2 py-1 rounded-md transition-colors"
-            title="Cambiar orden de la lista"
-          >
-            <ArrowDownUp size={12} />
-            <span>{ORDENES.find((o) => o.valor === orden)?.etiqueta}</span>
-          </button>
+        {/* Barra de búsqueda de vehículos */}
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Buscar vehículo (AUTO-01, Moto, Bicicleta...)"
+            value={busquedaTexto}
+            onChange={(e) => setBusquedaTexto(e.target.value)}
+            className="w-full bg-white border border-gray-300 rounded-md pl-8 pr-7 py-1.5 text-xs text-ink-900 placeholder-ink-400 focus:outline-none focus:border-brand-500"
+          />
+          <Search size={14} className="absolute left-2.5 top-2 text-ink-400" />
+          {busquedaTexto && (
+            <button
+              type="button"
+              onClick={() => setBusquedaTexto('')}
+              className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+              title="Limpiar búsqueda"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Capacidad de ordenar por hora de salida y otros criterios */}
+        <div className="bg-gray-50/90 border border-gray-200 rounded-lg p-2 space-y-1.5 text-xs">
+          <div className="flex items-center justify-between gap-1">
+            <label htmlFor="ordenar-unidades" className="text-[11px] font-bold text-ink-700 flex items-center gap-1">
+              <ArrowDownUp size={12} className="text-brand-500" />
+              <span>Ordenar vehículos:</span>
+            </label>
+            <select
+              id="ordenar-unidades"
+              value={orden}
+              onChange={(e) => setOrden(e.target.value as Orden)}
+              className="bg-white border border-gray-300 rounded px-2 py-1 text-[11px] font-semibold text-ink-900 outline-none flex-1 max-w-[190px] cursor-pointer hover:border-brand-400 truncate"
+            >
+              <optgroup label="⏰ Hora de salida (Ruta)">
+                <option value="salidaAsc">Hora salida: Más temprana (Asc)</option>
+                <option value="salidaDesc">Hora salida: Más tardía (Desc)</option>
+              </optgroup>
+              <optgroup label="🏁 Hora de llegada (Destino)">
+                <option value="llegadaAsc">Hora llegada: Más temprana (Asc)</option>
+                <option value="llegadaDesc">Hora llegada: Más tardía (Desc)</option>
+              </optgroup>
+              <optgroup label="📦 Carga y ocupación">
+                <option value="desc">Ocupación: Mayor a Menor</option>
+                <option value="asc">Ocupación: Menor a Mayor</option>
+              </optgroup>
+              <optgroup label="🏷️ Código">
+                <option value="codigo">Por Código</option>
+              </optgroup>
+            </select>
+          </div>
+
+          {/* Botones directos para ordenar por hora de salida */}
+          <div className="flex items-center gap-1.5 pt-0.5 text-[10px]">
+            <span className="text-ink-500 font-semibold shrink-0">Hora de salida:</span>
+            <button
+              type="button"
+              onClick={() => setOrden('salidaAsc')}
+              className={`flex-1 py-1 px-1.5 rounded border text-center font-bold transition-colors ${
+                orden === 'salidaAsc'
+                  ? 'bg-brand-500 text-white border-brand-500 shadow-xs'
+                  : 'bg-white text-ink-700 border-gray-200 hover:bg-gray-100'
+              }`}
+              title="Ordenar por hora de salida más temprana"
+            >
+              &uarr; Más temprana
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrden('salidaDesc')}
+              className={`flex-1 py-1 px-1.5 rounded border text-center font-bold transition-colors ${
+                orden === 'salidaDesc'
+                  ? 'bg-brand-500 text-white border-brand-500 shadow-xs'
+                  : 'bg-white text-ink-700 border-gray-200 hover:bg-gray-100'
+              }`}
+              title="Ordenar por hora de salida más tardía"
+            >
+              &darr; Más tardía
+            </button>
+          </div>
+        </div>
+
+        {/* Búsqueda por distancia en minutos al destino inmediato o al origen (Sí4) */}
+        <div className="bg-gray-50/90 border border-gray-200 rounded-lg p-2 space-y-1.5 text-xs">
+          <div className="flex items-center justify-between text-[11px] font-bold text-(--color-ink-700)">
+            <span>Buscar UT por distancia (minutos)</span>
+            <span className="text-[10px] font-semibold text-brand-600">Distinguir llegada / salida</span>
+          </div>
+          <div className="flex gap-1.5 items-center">
+            <select
+              value={busquedaTipo}
+              onChange={(e) => setBusquedaTipo(e.target.value as 'destino' | 'origen')}
+              className="bg-white border border-gray-300 rounded px-1.5 py-1 text-[11px] font-semibold text-ink-900 outline-none flex-1 truncate"
+            >
+              <option value="destino">Al destino inmediato (llegada)</option>
+              <option value="origen">Al origen (salida del almacén)</option>
+            </select>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[11px] text-gray-500">&le;</span>
+              <input
+                type="number"
+                min={0}
+                placeholder="Minutos"
+                value={filtroMinutos}
+                onChange={(e) => setFiltroMinutos(e.target.value)}
+                className="w-16 bg-white border border-gray-300 rounded px-1.5 py-1 text-[11px] text-center font-bold text-ink-900 outline-none"
+              />
+              <span className="text-[11px] text-gray-500">min</span>
+              {filtroMinutos && (
+                <button
+                  type="button"
+                  onClick={() => setFiltroMinutos('')}
+                  className="text-gray-400 hover:text-gray-600 px-1 font-bold text-xs"
+                  title="Limpiar búsqueda por minutos"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Botones de filtro por semáforo */}
@@ -270,12 +472,19 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
                       {u.estadoOperativo === 'AVERIADA' && (
                         <span className="text-[9px] font-bold text-red-600 bg-red-100 px-1 py-0.2 rounded">Averiada</span>
                       )}
-                      {/* Hora de salida del almacén de su ruta en curso */}
-                      {salidaMs !== undefined && (
-                        <span className="ml-auto text-[10px] text-gray-500 font-medium" title="Hora de salida del almacén">
-                          Salida a: {horarioDeUnidad.salidaTexto.get(u.codigo)}
-                        </span>
-                      )}
+                      {/* Hora de salida y llegada a destino inmediato (Sí4) */}
+                      <div className="ml-auto flex items-center gap-1.5 text-[10px] text-gray-500 font-medium">
+                        {salidaMs !== undefined && (
+                          <span title="Hora de salida del almacén">
+                            Salida: {horarioDeUnidad.salidaTexto.get(u.codigo)}
+                          </span>
+                        )}
+                        {horarioDeUnidad.llegadaDestinoTexto.get(u.codigo) && (
+                          <span title="Hora estimada de llegada a destino inmediato (cliente o almacén)">
+                            · Llegada: {horarioDeUnidad.llegadaDestinoTexto.get(u.codigo)}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Barra de ocupación / stock */}
@@ -293,6 +502,18 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
                         {u.cargaActual}/{cap} u
                       </span>
                     </div>
+
+                    {/* Distancias en minutos al origen (salida) y destino inmediato (llegada) (Sí4) */}
+                    {(horarioDeUnidad.minutosOrigen.has(u.codigo) || horarioDeUnidad.minutosDestino.has(u.codigo)) && (
+                      <div className="flex items-center justify-between gap-1 text-[10px] text-gray-500 mt-0.5 pt-0.5 border-t border-gray-100/80">
+                        <span title="Distancia en minutos al origen (almacén de donde salió)">
+                          🛫 Origen (salida): <b className="text-ink-800">{horarioDeUnidad.minutosOrigen.get(u.codigo) ?? 0} min</b>
+                        </span>
+                        <span title="Distancia en minutos al destino inmediato (llegada)">
+                          🏁 Destino (llegada): <b className="text-brand-600">{horarioDeUnidad.minutosDestino.get(u.codigo) ?? '—'} min</b>
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Badge semáforo de ocupación */}
