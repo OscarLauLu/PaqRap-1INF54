@@ -59,4 +59,13 @@ export const pedidosApi = {
     });
     return mapearPedido(response.data);
   },
+
+  async subirArchivo(archivo: File): Promise<PedidoRegistro[]> {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    const response = await apiClient.post<PedidoDTOBackend[]>('/api/pedidos/subir-archivo', formData, {
+      timeout: 60000,
+    });
+    return response.data.map(mapearPedido);
+  },
 };

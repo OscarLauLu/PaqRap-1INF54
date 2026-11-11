@@ -36,19 +36,21 @@ export const PestanaBloqueos: React.FC = () => {
 
   const handleArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
     const elegido = e.target.files?.[0];
+    e.target.value = '';
     if (elegido) {
       setArchivo(elegido);
       setMensaje(null);
+      subirArchivo(elegido);
     }
-    e.target.value = '';
   };
 
-  const subirArchivo = async () => {
-    if (!archivo) return;
+  const subirArchivo = async (archivoParam?: File) => {
+    const aSubir = archivoParam || archivo;
+    if (!aSubir) return;
     setSubiendo(true);
     try {
-      const cargados = await bloqueosApi.subirArchivo(archivo);
-      setMensaje(`Archivo "${archivo.name}" procesado: ${cargados.length} bloqueo(s) registrados en el servidor.`);
+      const cargados = await bloqueosApi.subirArchivo(aSubir);
+      setMensaje(`Archivo "${aSubir.name}" procesado: ${cargados.length} bloqueo(s) registrados en el servidor.`);
       setArchivo(null);
       cargarBloqueos();
     } catch {
@@ -102,7 +104,7 @@ export const PestanaBloqueos: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={subirArchivo}
+            onClick={() => subirArchivo()}
             disabled={!archivo || subiendo}
             className="rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-7 py-2.5 text-sm transition-colors"
           >

@@ -21,7 +21,7 @@ export const bloqueosApi = {
     const formData = new FormData();
     formData.append('archivo', archivo);
     const response = await apiClient.post<BloqueoVial[]>('/api/redvial/bloqueos/subir-archivo', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     });
     return response.data;
   },

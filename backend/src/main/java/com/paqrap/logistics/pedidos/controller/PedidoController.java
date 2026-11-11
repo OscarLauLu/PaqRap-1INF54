@@ -1,5 +1,6 @@
 package com.paqrap.logistics.pedidos.controller;
 
+import com.paqrap.logistics.common.service.ArchivoStorageService;
 import com.paqrap.logistics.pedidos.dto.ActualizarPedidoDTO;
 import com.paqrap.logistics.pedidos.dto.CrearPedidoDTO;
 import com.paqrap.logistics.pedidos.dto.PedidoDTO;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -32,6 +34,20 @@ import java.util.List;
 public class PedidoController {
 
     private final PedidoService pedidoService;
+    private final ArchivoStorageService archivoStorageService;
+
+    @PostMapping("/cargar")
+    @Operation(summary = "Cargar archivo de pedidos ya presente en el servidor (RF-26, RF-64)")
+    public ResponseEntity<List<PedidoDTO>> cargarArchivoPedidos(@RequestParam String rutaArchivo) {
+        return ResponseEntity.ok(pedidoService.cargarArchivoPedidos(rutaArchivo));
+    }
+
+    @PostMapping("/subir-archivo")
+    @Operation(summary = "Subir un archivo de pedidos desde el navegador y registrar los pedidos (RF-26, RF-64)")
+    public ResponseEntity<List<PedidoDTO>> subirArchivoPedidos(@RequestParam("archivo") MultipartFile archivo) throws java.io.IOException {
+        String rutaGuardada = archivoStorageService.guardar(archivo, "pedidos");
+        return ResponseEntity.ok(pedidoService.cargarArchivoPedidos(rutaGuardada));
+    }
 
     @PostMapping
     @Operation(summary = "Registrar nuevo pedido", description = "Valida datos obligatorios, genera código único, calcula holgura y plazo límite (RF-26 a RF-32)")

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paqrap.logistics.common.exception.BusinessException;
 import com.paqrap.logistics.common.exception.GlobalExceptionHandler;
 import com.paqrap.logistics.common.exception.ResourceNotFoundException;
+import com.paqrap.logistics.common.service.ArchivoStorageService;
 import com.paqrap.logistics.pedidos.controller.PedidoController;
 import com.paqrap.logistics.pedidos.dto.ActualizarPedidoDTO;
 import com.paqrap.logistics.pedidos.dto.CrearPedidoDTO;
@@ -21,6 +22,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -48,6 +50,9 @@ public class PedidoAcceptanceTest {
 
     @Mock
     private PedidoService pedidoService;
+
+    @Mock
+    private ArchivoStorageService archivoStorageService;
 
     @InjectMocks
     private PedidoController pedidoController;
@@ -396,5 +401,39 @@ public class PedidoAcceptanceTest {
 
         mockMvc.perform(delete("/api/pedidos/999999"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("CP-PED-075: Cargar archivo de pedidos (200 OK)")
+    void testCP_PED_075_CargarArchivoPedidos() throws Exception {
+        when(pedidoService.cargarArchivoPedidos("/datos/ventas.202610.txt"))
+                .thenReturn(List.of(pedidoMock));
+
+        mockMvc.perform(post("/api/pedidos/cargar?rutaArchivo=/datos/ventas.202610.txt"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].codigo", is(pedidoMock.getCodigo())));
+    }
+
+    @Test
+    @DisplayName("CP-PED-076: Subir archivo de pedidos (200 OK)")
+    void testCP_PED_076_SubirArchivoPedidos() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "archivo",
+                "ventas202610.txt",
+                "text/plain",
+                "01d08h00m,20,10,CLI-001,5,4".getBytes()
+        );
+
+        when(archivoStorageService.guardar(any(), eq("pedidos")))
+                .thenReturn("/tmp/paqrap_uploads/pedidos/123-ventas202610.txt");
+        when(pedidoService.cargarArchivoPedidos("/tmp/paqrap_uploads/pedidos/123-ventas202610.txt"))
+                .thenReturn(List.of(pedidoMock));
+
+        mockMvc.perform(multipart("/api/pedidos/subir-archivo")
+                        .file(file))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].codigo", is(pedidoMock.getCodigo())));
     }
 }
