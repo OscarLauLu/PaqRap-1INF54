@@ -197,8 +197,7 @@ export const ListaUnidadesPanel: React.FC<ListaUnidadesPanelProps> = ({
       lista = lista.filter(
         (u) =>
           u.codigo.toLowerCase().includes(q) ||
-          u.tipoNombre.toLowerCase().includes(q) ||
-          (u.placa && u.placa.toLowerCase().includes(q))
+          u.tipoNombre.toLowerCase().includes(q)
       );
     }
 

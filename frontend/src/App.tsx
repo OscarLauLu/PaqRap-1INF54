@@ -59,6 +59,7 @@ export const App: React.FC = () => {
     reanudar,
     alternarPausa,
   } = useSimulacion(1000);
+  const { metricas } = useMetricas(5000);
   const { unidades, selectedUnidadCodigo, setSelectedUnidadCodigo } = useFlota(4000);
   const { pedidos } = useMapaOperaciones(4000);
   const [selectedAlmacenCodigo, setSelectedAlmacenCodigo] = useState<string | null>(null);
