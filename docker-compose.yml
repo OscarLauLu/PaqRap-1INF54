@@ -11,11 +11,27 @@ services:
     ports:
       - "8082:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=default
+      # "default" = H2 en memoria | "rds" = Postgres con esquema por Hibernate (se define en .env)
+      - SPRING_PROFILES_ACTIVE=${PAQRAP_PERFIL_OPERACION:-rds}
       - PAQRAP_MODO=OPERACION
+      # Por defecto usa el Postgres LOCAL (servicio "db", misma red Docker: latencia ~0).
+      # Para apuntar a otra BD (p. ej. RDS) define APP_DB_HOST/APP_DB_USER/APP_DB_PASSWORD
+      # y APP_DB_SSLMODE=require en .env. Ojo: RDS desde aquí tarda ~87 ms por consulta.
+      - DB_HOST=${APP_DB_HOST:-db}
+      - DB_PORT=5432
+      - DB_NAME=${APP_DB_NAME:-paqrap_operacion}
+      - DB_USER=${APP_DB_USER:-paqrap}
+      - DB_PASSWORD=${APP_DB_PASSWORD:-${DB_LOCAL_PASSWORD:-paqrap_local}}
+      - DB_SSLMODE=${APP_DB_SSLMODE:-disable}
+      - PAQRAP_UPLOADS_DIR=/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       # Monta la carpeta datos para leer archivos en tiempo real sin reconstruir
       - ./datos:/app/datos:ro
+      # Archivos subidos desde el frontend: persisten entre reinicios
+      - ./uploads:/app/uploads
     command: ["web"]
 
   # ----------------------------------------------------------------------------
@@ -85,18 +101,24 @@ services:
   # Base de Datos PostgreSQL opcional (para perfil prod)
   # ----------------------------------------------------------------------------
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: paqrap-postgres
     ports:
-      - "5432:5432"
+      # Solo accesible desde esta máquina (DBeaver: localhost:5433). El puerto 5433 evita
+      # chocar con un Postgres instalado en Windows. Para verlo desde fuera usa un túnel SSH.
+      - "127.0.0.1:5433:5432"
     environment:
-      POSTGRES_DB: logistics
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: paqrap_operacion
+      POSTGRES_USER: paqrap
+      POSTGRES_PASSWORD: ${DB_LOCAL_PASSWORD:-paqrap_local}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    profiles:
-      - with-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paqrap -d paqrap_operacion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
 volumes:
   pgdata:

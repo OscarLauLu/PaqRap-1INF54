@@ -13,6 +13,8 @@ import com.paqrap.logistics.pedidos.repository.ClienteRepository;
 import com.paqrap.logistics.pedidos.repository.PedidoRepository;
 import com.paqrap.logistics.redvial.model.Ubicacion;
 import com.paqrap.logistics.simulacion.model.CargadorArchivos;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,7 +24,10 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,16 +44,40 @@ public class PedidoService {
     private final ConfiguracionSemaforo configuracionSemaforo;
     private final CargadorArchivos cargadorArchivos;
 
+    /** Ids por consulta IN al cargar clientes (Postgres admite hasta 32 767 parámetros). */
+    private static final int LOTE_CLIENTES = 1000;
+
+    @PersistenceContext
+    private EntityManager em;
+
     /**
      * Carga y persiste pedidos desde un archivo plano (RF-26, RF-64).
      */
     @Transactional
     public List<PedidoDTO> cargarArchivoPedidos(String rutaArchivo) {
         List<Pedido> cargados = cargadorArchivos.cargarPedidos(rutaArchivo);
+
+        // Clientes: una consulta por lote de ids (no una por línea) y un único objeto por cliente.
+        // Un archivo grande (miles de líneas) hacía una consulta + un save por pedido, lo que
+        // tardaba minutos y se degradaba al crecer la sesión de Hibernate.
+        List<String> idsClientes = cargados.stream()
+                .map(Pedido::getCliente).filter(Objects::nonNull)
+                .map(Cliente::getIdCliente).distinct().collect(Collectors.toList());
+        Map<String, Cliente> clientes = new HashMap<>();
+        for (int i = 0; i < idsClientes.size(); i += LOTE_CLIENTES) {
+            List<String> lote = idsClientes.subList(i, Math.min(i + LOTE_CLIENTES, idsClientes.size()));
+            clienteRepository.findAllById(lote).forEach(c -> clientes.put(c.getIdCliente(), c));
+        }
         for (Pedido p : cargados) {
-            if (p.getCliente() != null) {
-                clienteRepository.findByIdCliente(p.getCliente().getIdCliente())
-                        .orElseGet(() -> clienteRepository.save(p.getCliente()));
+            Cliente c = p.getCliente();
+            if (c != null) {
+                Cliente conocido = clientes.get(c.getIdCliente());
+                if (conocido == null) {
+                    em.persist(c);
+                    clientes.put(c.getIdCliente(), c);
+                    conocido = c;
+                }
+                p.setCliente(conocido);
             }
             p.evaluarCriticidad(configuracionSemaforo);
         }

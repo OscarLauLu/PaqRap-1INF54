@@ -1,8 +1,15 @@
 package com.paqrap.logistics.flota.service;
 
 import com.paqrap.logistics.flota.model.Mantenimiento;
+import com.paqrap.logistics.flota.model.MantenimientoProgramado;
+import com.paqrap.logistics.flota.model.UnidadTransporte;
+import com.paqrap.logistics.flota.repository.MantenimientoProgramadoRepository;
+import com.paqrap.logistics.flota.repository.UnidadTransporteRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -11,10 +18,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -36,6 +46,16 @@ public class PlanMantenimientoService {
 
     private volatile List<Mantenimiento> plan = Collections.emptyList();
 
+    /** Opcional: nulo cuando el servicio se crea a mano (tests); Spring lo inyecta en la app. */
+    @Autowired(required = false)
+    private MantenimientoProgramadoRepository repositorio;
+
+    @Autowired(required = false)
+    private UnidadTransporteRepository unidadRepositorio;
+
+    /** Lo leído de los archivos; base para sincronizar con la BD. */
+    private volatile List<Mantenimiento> deArchivo = Collections.emptyList();
+
     @PostConstruct
     void cargarAlIniciar() {
         Path carpeta = resolverCarpetaDatos().resolve(CARPETA_PLANES);
@@ -56,8 +76,70 @@ public class PlanMantenimientoService {
         } else {
             log.warn("No existe la carpeta de planes de mantenimiento: {}. No se aplicará mantenimiento.", carpeta);
         }
+        this.deArchivo = nuevo;
         this.plan = Collections.unmodifiableList(nuevo);
-        log.info("Plan de mantenimiento preventivo cargado: {} registros.", nuevo.size());
+        log.info("Plan de mantenimiento preventivo cargado de archivos: {} registros.", nuevo.size());
+    }
+
+    /**
+     * Sincroniza el plan con la tabla {@code mantenimiento_programado}. Corre cuando la app ya
+     * arrancó (la flota ya está sembrada, que es lo que exige la FK) y antes de que inicie la
+     * operación diaria. Guarda lo de archivo que aún no existe (idempotente) y deja como plan
+     * vigente lo que haya en la tabla, de modo que un día de mantenimiento agregado directamente
+     * en BD también bloquea la unidad. Sin repositorios (tests) o si la tabla no está disponible,
+     * el plan sigue siendo el leído de archivo.
+     */
+    @EventListener(ApplicationStartedEvent.class)
+    public void sincronizarConBd() {
+        if (repositorio == null || unidadRepositorio == null) {
+            return;
+        }
+        try {
+            Set<String> flota = unidadRepositorio.findAll().stream()
+                    .map(UnidadTransporte::getCodigo)
+                    .collect(Collectors.toSet());
+            Set<String> existentes = repositorio.findAll().stream()
+                    .map(MantenimientoProgramado::getCodigo)
+                    .collect(Collectors.toSet());
+            List<MantenimientoProgramado> faltantes = new ArrayList<>();
+            int sinUnidad = 0;
+            for (Mantenimiento m : deArchivo) {
+                String codigo = codigoDe(m);
+                if (!flota.contains(m.getCodigoVehiculo())) {
+                    sinUnidad++;
+                } else if (existentes.add(codigo)) {
+                    faltantes.add(MantenimientoProgramado.builder()
+                            .codigo(codigo)
+                            .unidad(unidadRepositorio.getReferenceById(m.getCodigoVehiculo()))
+                            .fecha(m.getFechaHoraInicio().toLocalDate())
+                            .horaInicio(m.getFechaHoraInicio().toLocalTime())
+                            .horaFin(m.getFechaHoraFin().toLocalTime())
+                            .build());
+                }
+            }
+            if (sinUnidad > 0) {
+                log.warn("{} registros de mantenimiento se omitieron: su unidad no existe en la flota.", sinUnidad);
+            }
+            if (!faltantes.isEmpty()) {
+                repositorio.saveAll(faltantes);
+                log.info("Mantenimientos nuevos guardados en BD: {}", faltantes.size());
+            }
+            this.plan = Collections.unmodifiableList(repositorio.findAllConUnidad().stream()
+                    .map(r -> Mantenimiento.builder()
+                            .codigoVehiculo(r.getUnidad().getCodigo())
+                            .fechaHoraInicio(r.getFecha().atTime(r.getHoraInicio()))
+                            .fechaHoraFin(r.getFecha().atTime(r.getHoraFin()))
+                            .build())
+                    .collect(Collectors.toList()));
+            log.info("Plan de mantenimiento vigente desde BD: {} registros.", this.plan.size());
+        } catch (RuntimeException e) {
+            log.warn("No se pudo usar la tabla mantenimiento_programado; se usa solo el plan de archivos: {}", e.getMessage());
+        }
+    }
+
+    private static String codigoDe(Mantenimiento m) {
+        return "MNT-" + m.getFechaHoraInicio().toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + m.getCodigoVehiculo();
     }
 
     /**

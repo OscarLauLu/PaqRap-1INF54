@@ -1,0 +1,5 @@
+# Credenciales locales (NUNCA subir). Plantilla versionada: .env.example
+.env
+
+# Archivos subidos desde el frontend (perfil prod / docker)
+uploads/

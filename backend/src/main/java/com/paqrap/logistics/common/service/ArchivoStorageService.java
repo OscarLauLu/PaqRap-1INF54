@@ -1,5 +1,6 @@
 package com.paqrap.logistics.common.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -16,10 +17,16 @@ import java.nio.file.Paths;
 @Service
 public class ArchivoStorageService {
 
-    private static final Path CARPETA_BASE = Paths.get(System.getProperty("java.io.tmpdir"), "paqrap_uploads");
+    private final Path carpetaBase;
+
+    public ArchivoStorageService(@Value("${logistics.uploads.dir:}") String carpetaConfigurada) {
+        this.carpetaBase = (carpetaConfigurada == null || carpetaConfigurada.isBlank())
+                ? Paths.get(System.getProperty("java.io.tmpdir"), "paqrap_uploads")
+                : Paths.get(carpetaConfigurada);
+    }
 
     public String guardar(MultipartFile archivo, String subcarpeta) throws IOException {
-        Path dir = CARPETA_BASE.resolve(subcarpeta).toAbsolutePath();
+        Path dir = carpetaBase.resolve(subcarpeta).toAbsolutePath();
         Files.createDirectories(dir);
         String nombreOriginal = archivo.getOriginalFilename();
         if (nombreOriginal == null || nombreOriginal.trim().isEmpty()) {

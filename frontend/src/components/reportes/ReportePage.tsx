@@ -55,8 +55,23 @@ export const ReportePage: React.FC = () => {
   const exportarCSV = () => {
     if (!ultimo) return;
     const filas = [
-      ['codigo', 'escenario', 'porcentajeCumplimiento', 'costoTotalOperacion', 'totalAveriasOcurridas', 'totalBloqueosOcurridos'],
-      [ultimo.codigo, ultimo.escenario, String(ultimo.porcentajeCumplimiento), String(ultimo.costoTotalOperacion), String(ultimo.totalAveriasOcurridas), String(ultimo.totalBloqueosOcurridos)],
+      [
+        'codigo', 'escenario', 'fechaHoraInicio', 'fechaHoraFin', 'tiempoEjecucionRealSegundos',
+        'instanteColapso', 'volumenPedidosColapso',
+        'totalPedidos', 'pedidosEntregadosEnPlazo', 'pedidosEntregadosTarde', 'porcentajeCumplimiento',
+        'costoTotalOperacion', 'costoTotalAuto', 'costoTotalMoto', 'costoTotalBicicleta',
+        'entregasAuto', 'entregasMoto', 'entregasBicicleta',
+        'totalBloqueosOcurridos', 'totalAveriasOcurridas',
+      ],
+      [
+        ultimo.codigo, ultimo.escenario, ultimo.fechaHoraInicio ?? '', ultimo.fechaHoraFin ?? '',
+        ultimo.tiempoEjecucionRealSegundos ?? '',
+        ultimo.instanteColapso ?? '', ultimo.volumenPedidosColapso ?? '',
+        ultimo.totalPedidos, ultimo.pedidosEntregadosEnPlazo, ultimo.pedidosEntregadosTarde, ultimo.porcentajeCumplimiento,
+        ultimo.costoTotalOperacion, ultimo.costoTotalAuto, ultimo.costoTotalMoto, ultimo.costoTotalBicicleta,
+        ultimo.entregasAuto, ultimo.entregasMoto, ultimo.entregasBicicleta,
+        ultimo.totalBloqueosOcurridos, ultimo.totalAveriasOcurridas,
+      ].map(String),
     ];
     const csv = filas.map((f) => f.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });

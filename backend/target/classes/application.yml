@@ -47,6 +47,11 @@ springdoc:
     path: /v3/api-docs
 
 logistics:
+  uploads:
+    # Carpeta donde se guardan los archivos subidos desde el frontend.
+    # Vacío = carpeta temporal del SO (se pierde al reiniciar). En docker se
+    # monta como volumen en /app/uploads (PAQRAP_UPLOADS_DIR).
+    dir: ${PAQRAP_UPLOADS_DIR:}
   config:
     critical-slack-hours: 4
     service-time-minutes: 60
@@ -86,7 +91,9 @@ spring:
   autoconfigure:
     exclude: []
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:logistics}
+    # sslmode=require: RDS es accesible desde internet; cifra la conexión (y la contraseña).
+    # Para Postgres local sin SSL (docker-compose with-db) usar DB_SSLMODE=disable.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:logistics}?sslmode=${DB_SSLMODE:require}
     username: ${DB_USER:postgres}
     password: ${DB_PASSWORD:postgres}
     driverClassName: org.postgresql.Driver
@@ -98,3 +105,27 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+---
+# Perfil "rds": Postgres real (RDS) con el esquema generado por Hibernate desde las
+# entidades (ddl-auto: update) y seed idempotente (data-rds.sql). Es un perfil
+# INTERINO: la plataforma funciona igual que con H2 pero con datos persistentes.
+# El perfil "prod" (Flyway + validate contra docs/62) queda para cuando las
+# entidades estén remodeladas al esquema documentado.
+spring:
+  config:
+    activate:
+      on-profile: rds
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:logistics}?sslmode=${DB_SSLMODE:require}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driverClassName: org.postgresql.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  sql:
+    init:
+      mode: always
+      data-locations: classpath:data-rds.sql
