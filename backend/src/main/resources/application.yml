@@ -129,3 +129,33 @@ spring:
     init:
       mode: always
       data-locations: classpath:data-rds.sql
+---
+# Perfil "mysql": MySQL de la VM del equipo (BD de operación diaria). Igual que "rds":
+# esquema generado por Hibernate desde las entidades (ddl-auto: update) + seed idempotente
+# (data-mysql.sql). Flyway sigue apagado (hereda enabled:false y el exclude del bloque default).
+# Credenciales por variables de entorno (.env), nunca en el repo.
+#   DB_HOST, DB_PORT (3306), DB_NAME, DB_USER, DB_PASSWORD
+#   DB_SSL: false | true (usar true si el servidor MySQL tiene TLS habilitado)
+# Parámetros de la URL:
+#   serverTimezone=America/Lima   -> los LocalDateTime se guardan/leen sin desfase (hora de Lima)
+#   allowPublicKeyRetrieval=true  -> necesario con el plugin caching_sha2_password de MySQL 8 sin SSL
+#   rewriteBatchedStatements=true -> agrupa los INSERT en lote (mejora cargas grandes de pedidos
+#                                    sobre red; con claves IDENTITY Hibernate igual inserta uno a uno)
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:paqrap_operacion}?useSSL=${DB_SSL:false}&allowPublicKeyRetrieval=true&serverTimezone=America/Lima&characterEncoding=UTF-8&rewriteBatchedStatements=true
+    username: ${DB_USER:paqrap}
+    password: ${DB_PASSWORD:}
+    driverClassName: com.mysql.cj.jdbc.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  sql:
+    init:
+      mode: always
+      data-locations: classpath:data-mysql.sql

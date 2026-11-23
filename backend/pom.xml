@@ -45,6 +45,13 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- MySQL: BD de operación en la VM del equipo (perfil "mysql", ver application.yml).
+             Versión gestionada por spring-boot-starter-parent. -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Flyway: aplica el DDL versionado de docs/62.dis.base.datos.postgresql.v01.md
              (src/main/resources/db/migration/V*.sql) contra Postgres al arrancar.

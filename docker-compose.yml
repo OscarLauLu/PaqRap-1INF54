@@ -10,23 +10,28 @@ services:
     container_name: paqrap-app
     ports:
       - "8082:8080"
+    # En Linux (VM) "host.docker.internal" no existe por defecto: esta línea lo crea y lo
+    # apunta al host, para que el contenedor llegue al MySQL instalado en la propia VM.
+    # En Docker Desktop (Windows/Mac) ya existe y esta línea no estorba.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      # "default" = H2 en memoria | "rds" = Postgres con esquema por Hibernate (se define en .env)
-      - SPRING_PROFILES_ACTIVE=${PAQRAP_PERFIL_OPERACION:-rds}
+      # "mysql" = MySQL de la VM del equipo (esquema por Hibernate) | "default" = H2 en memoria
+      # | "rds" = Postgres (legado: requiere levantar el servicio "db" con --profile with-postgres)
+      - SPRING_PROFILES_ACTIVE=${PAQRAP_PERFIL_OPERACION:-mysql}
       - PAQRAP_MODO=OPERACION
-      # Por defecto usa el Postgres LOCAL (servicio "db", misma red Docker: latencia ~0).
-      # Para apuntar a otra BD (p. ej. RDS) define APP_DB_HOST/APP_DB_USER/APP_DB_PASSWORD
-      # y APP_DB_SSLMODE=require en .env. Ojo: RDS desde aquí tarda ~87 ms por consulta.
-      - DB_HOST=${APP_DB_HOST:-db}
-      - DB_PORT=5432
+      # Conexión a la BD de operación (MySQL en la VM). Define APP_DB_* en .env (ver .env.example).
+      # host.docker.internal = la máquina donde corre Docker (la VM en el despliegue).
+      # El usuario de la app es "paqrap" (permisos solo sobre paqrap_operacion); root queda
+      # para administrar la BD desde Workbench.
+      - DB_HOST=${APP_DB_HOST:-host.docker.internal}
+      - DB_PORT=${APP_DB_PORT:-3306}
       - DB_NAME=${APP_DB_NAME:-paqrap_operacion}
       - DB_USER=${APP_DB_USER:-paqrap}
-      - DB_PASSWORD=${APP_DB_PASSWORD:-${DB_LOCAL_PASSWORD:-paqrap_local}}
+      - DB_PASSWORD=${APP_DB_PASSWORD:-}
+      - DB_SSL=${APP_DB_SSL:-false}
       - DB_SSLMODE=${APP_DB_SSLMODE:-disable}
       - PAQRAP_UPLOADS_DIR=/app/uploads
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
       # Monta la carpeta datos para leer archivos en tiempo real sin reconstruir
       - ./datos:/app/datos:ro
@@ -98,7 +103,8 @@ services:
     command: ["evaluacion"]
 
   # ----------------------------------------------------------------------------
-  # Base de Datos PostgreSQL opcional (para perfil prod)
+  # Base de Datos PostgreSQL LEGADA (opcional): ya no es la BD de operación (ahora MySQL en la VM).
+  # Solo arranca con: docker compose --profile with-postgres up db
   # ----------------------------------------------------------------------------
   db:
     image: postgres:16-alpine
@@ -119,6 +125,8 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    profiles:
+      - with-postgres
 
 volumes:
   pgdata:
