@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Truck, CalendarDays, AlertTriangle, Info, Rocket, Loader2, CalendarClock, Layers } from 'lucide-react';
 import { Card } from '../ui/Card';
+import { SelectorFecha } from '../ui/SelectorFecha';
+import { SelectorHora } from '../ui/SelectorHora';
 import { simulacionApi } from '../../api/simulacionApi';
 import { setBackend } from '../../api/client';
 import type { TipoEscenario } from '../../types';
@@ -30,12 +32,27 @@ const inputBase =
 const inputUmbral =
   'w-12 rounded-md border border-ink-300 bg-white px-1 py-0.5 text-center text-sm font-bold text-ink-900 outline-none focus:border-brand-500';
 
+const dos = (n: number) => String(n).padStart(2, '0');
+
 export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => {
   const [escenario, setEscenario] = useState<TipoEscenario>('DIA_A_DIA');
 
   // Sin valores por defecto: el usuario debe elegir la fecha y la hora de inicio de forma explícita
   const [fechaInicio, setFechaInicio] = useState('');
   const [horaInicio, setHoraInicio] = useState('');
+
+  const usarAhora = () => {
+    const d = new Date();
+    setFechaInicio(`${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`);
+    setHoraInicio(`${dos(d.getHours())}:${dos(d.getMinutes())}`);
+  };
+
+  const resumenInicio =
+    fechaInicio && horaInicio
+      ? new Date(`${fechaInicio}T${horaInicio}:00`).toLocaleDateString('es-PE', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        }) + ` · ${horaInicio} h`
+      : null;
 
   const [horasVerde, setHorasVerde] = useState(12);
   const [horasAmbar, setHorasAmbar] = useState(4);
@@ -138,24 +155,30 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
     <main className="flex-1 p-6 md:p-8 space-y-6">
       {/* ===== Configura el inicio ===== */}
       <Card icono={CalendarClock} titulo="Configura el inicio">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch -mt-3">
-          <label className="block">
+        <div className="grid grid-cols-1 md:grid-cols-[20rem_20rem_1fr] gap-4 items-start -mt-3">
+          <div>
             <span className="block text-sm font-semibold text-ink-700 mb-1.5">
               Fecha de inicio <span className="text-red-500">*</span>
             </span>
-            <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className={inputBase} />
-          </label>
+            <SelectorFecha value={fechaInicio} onChange={setFechaInicio} ariaLabel="Fecha de inicio" />
+          </div>
 
-          <label className="block">
+          <div>
             <span className="block text-sm font-semibold text-ink-700 mb-1.5">
               Hora de inicio <span className="text-red-500">*</span>
             </span>
-            <input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} className={inputBase} />
-          </label>
+            <SelectorHora value={horaInicio} onChange={setHoraInicio} ariaLabel="Hora de inicio" />
+          </div>
 
-          <div className="h-full flex items-center gap-3 rounded-md bg-brand-50 px-5 py-3 text-sm text-ink-500">
+          <div className="flex items-center gap-3 rounded-md bg-brand-50 px-5 py-3 text-sm text-ink-500">
             <Info className="w-5 h-5 text-brand-500 shrink-0" />
-            <p>La simulación inicia desde la fecha y hora configuradas, se aplica a los tres escenarios.</p>
+            <div className="space-y-1">
+              <p>La simulación inicia desde la fecha y hora configuradas, se aplica a los tres escenarios.</p>
+              {resumenInicio && <p className="font-semibold text-ink-900 first-letter:uppercase">{resumenInicio}</p>}
+              <button type="button" onClick={usarAhora} className="text-brand-500 font-semibold hover:underline">
+                Usar fecha y hora actual
+              </button>
+            </div>
           </div>
         </div>
       </Card>
