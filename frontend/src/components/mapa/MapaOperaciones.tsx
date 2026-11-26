@@ -917,6 +917,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           if (r.puntos.length < 2) return null;
           const unidadRuta = unidades.find((u) => u.codigo === r.unidadCodigo);
           if (unidadRuta && !pasaFiltroUnidad(unidadRuta, filtros)) return null; // vehículo oculto con los filtros
+          const colorRuta = unidadRuta ? COLOR_TIPO[unidadRuta.tipoNombre] ?? '#6B7280' : '#6B7280';
           const codigoSel = seleccion?.tipo === 'vehiculo' ? seleccion.codigo : selectedUnidadCodigo;
           const contienePedidoSel = !!selectedPedidoCodigo && (r.codigosPedidos?.includes(selectedPedidoCodigo) ?? false);
           const esSel = (codigoSel === r.unidadCodigo) || contienePedidoSel;
