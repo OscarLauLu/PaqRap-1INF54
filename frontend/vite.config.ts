@@ -9,11 +9,13 @@ export default defineConfig({
     host: true,
     allowedHosts: ['paqrap-g9i.duckdns.org'],
     port: 5173,
-    hmr: {
-      host: 'paqrap-g9i.duckdns.org',
-      clientPort: 443,
-      protocol: 'wss'
-    },
+    hmr: process.env.HMR_LOCAL === 'true'
+      ? undefined
+      : {
+          host: 'paqrap-g9i.duckdns.org',
+          clientPort: 443,
+          protocol: 'wss'
+        },
     proxy: {
       // Backend de SIMULACIÓN (5D y colapso)
       '/sim/api': {
