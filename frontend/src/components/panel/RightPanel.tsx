@@ -404,7 +404,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         {/* Filtro global por semáforo de ocupación de Almacenes (Sí4) */}
         <div className="pt-2.5 mt-2.5 border-t border-gray-100">
           <span className="block text-[11px] font-bold text-(--color-ink-500) mb-1.5 uppercase tracking-wide">
-            Filtrar almacenes por semáforo de stock (Sí4)
+            Filtrar almacenes por semáforo de stock
           </span>
           <div className="flex items-center gap-1">
             {(['TODOS', 'VACIO', 'VERDE', 'AMBAR', 'ROJO'] as const).map((sem) => {
