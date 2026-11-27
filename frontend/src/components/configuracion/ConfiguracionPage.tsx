@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Truck, CalendarDays, AlertTriangle, Info, Rocket, Loader2, CalendarClock, Layers } from 'lucide-react';
+import { Truck, CalendarDays, AlertTriangle, Info, Rocket, Loader2, CalendarClock, Layers, Gauge } from 'lucide-react';
 import { Card } from '../ui/Card';
+import { SelectorFecha } from '../ui/SelectorFecha';
+import { SelectorHora } from '../ui/SelectorHora';
 import { simulacionApi } from '../../api/simulacionApi';
+import { flotaApi } from '../../api/flotaApi';
 import { setBackend } from '../../api/client';
 import type { TipoEscenario } from '../../types';
 
@@ -15,20 +18,19 @@ const ESCENARIOS: { id: TipoEscenario; titulo: string; detalle: string; Icono: R
   { id: 'COLAPSO_LOGISTICO', titulo: 'Simulación de colapso', detalle: 'Corre hasta que un solo pedido incumpla su plazo límite.', Icono: AlertTriangle },
 ];
 
-// Flota por defecto y capacidad reglamentaria de almacenes intermedios
+// Flota fijada por el docente (autos 28, motos 52, bicicletas 64) y capacidad de almacenes intermedios
 const FLOTA_POR_DEFECTO = {
-  numAutos: 10,
-  numMotos: 10,
-  numBicicletas: 10,
+  numAutos: 28,
+  numMotos: 52,
+  numBicicletas: 64,
   capacidadAlmacenIntermedio: 1000,
   tasaIncrementoPedidos: 1.0,
 };
 
-const inputBase =
-  'w-full rounded-xl border border-ink-300 bg-white px-4 py-2.5 text-base text-ink-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-colors';
-
 const inputUmbral =
   'w-12 rounded-md border border-ink-300 bg-white px-1 py-0.5 text-center text-sm font-bold text-ink-900 outline-none focus:border-brand-500';
+
+const dos = (n: number) => String(n).padStart(2, '0');
 
 export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => {
   const [escenario, setEscenario] = useState<TipoEscenario>('DIA_A_DIA');
@@ -36,6 +38,26 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
   // Sin valores por defecto: el usuario debe elegir la fecha y la hora de inicio de forma explícita
   const [fechaInicio, setFechaInicio] = useState('');
   const [horaInicio, setHoraInicio] = useState('');
+
+  const usarAhora = () => {
+    const d = new Date();
+    setFechaInicio(`${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`);
+    setHoraInicio(`${dos(d.getHours())}:${dos(d.getMinutes())}`);
+  };
+
+  const resumenInicio =
+    fechaInicio && horaInicio
+      ? new Date(`${fechaInicio}T${horaInicio}:00`).toLocaleDateString('es-PE', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        }) + ` · ${horaInicio} h`
+      : null;
+
+  // Velocidad por tipo de vehículo (km/h). Valores iniciales: los de data.sql
+  const [velAuto, setVelAuto] = useState(40);
+  const [velMoto, setVelMoto] = useState(25);
+  const [velBici, setVelBici] = useState(12);
+  const [aplicandoVel, setAplicandoVel] = useState(false);
+  const [avisoVel, setAvisoVel] = useState<{ ok: boolean; texto: string } | null>(null);
 
   const [horasVerde, setHorasVerde] = useState(12);
   const [horasAmbar, setHorasAmbar] = useState(4);
@@ -51,6 +73,32 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
       }
     });
   }, []);
+
+  // Cambio en caliente: rige desde la siguiente iteración de planificación
+  const aplicarVelocidades = async () => {
+    setAvisoVel(null);
+    const valores = [
+      ['Auto', velAuto],
+      ['Moto', velMoto],
+      ['Bicicleta', velBici],
+    ] as const;
+    if (valores.some(([, v]) => !(v > 0))) {
+      setAvisoVel({ ok: false, texto: 'Las velocidades deben ser mayores que 0.' });
+      return;
+    }
+    setAplicandoVel(true);
+    try {
+      setBackend(escenario === 'DIA_A_DIA' ? 'operacion' : 'simulacion');
+      for (const [tipo, v] of valores) {
+        await flotaApi.actualizarVelocidadTipo(tipo, v);
+      }
+      setAvisoVel({ ok: true, texto: 'Velocidades aplicadas. Rigen desde la siguiente planificación.' });
+    } catch {
+      setAvisoVel({ ok: false, texto: 'No se pudieron aplicar las velocidades. Revisa que el sistema esté en ejecución e inténtalo de nuevo.' });
+    } finally {
+      setAplicandoVel(false);
+    }
+  };
 
   const iniciar = async () => {
     setIniciando(true);
@@ -135,27 +183,33 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
   };
 
   return (
-    <main className="flex-1 p-6 md:p-8 space-y-6">
+    <main className="flex-1 p-4 md:p-5 space-y-3 [&>*]:p-4!">
       {/* ===== Configura el inicio ===== */}
       <Card icono={CalendarClock} titulo="Configura el inicio">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch -mt-3">
-          <label className="block">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start -mt-3">
+          <div>
             <span className="block text-sm font-semibold text-ink-700 mb-1.5">
               Fecha de inicio <span className="text-red-500">*</span>
             </span>
-            <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className={inputBase} />
-          </label>
+            <SelectorFecha value={fechaInicio} onChange={setFechaInicio} ariaLabel="Fecha de inicio" />
+          </div>
 
-          <label className="block">
+          <div>
             <span className="block text-sm font-semibold text-ink-700 mb-1.5">
               Hora de inicio <span className="text-red-500">*</span>
             </span>
-            <input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} className={inputBase} />
-          </label>
+            <SelectorHora value={horaInicio} onChange={setHoraInicio} ariaLabel="Hora de inicio" />
+          </div>
 
-          <div className="h-full flex items-center gap-3 rounded-md bg-brand-50 px-5 py-3 text-sm text-ink-500">
+          <div className="flex items-center gap-3 rounded-md bg-brand-50 px-5 py-3 text-sm text-ink-500">
             <Info className="w-5 h-5 text-brand-500 shrink-0" />
-            <p>La simulación inicia desde la fecha y hora configuradas, se aplica a los tres escenarios.</p>
+            <div className="space-y-1">
+              <p>La simulación inicia desde la fecha y hora configuradas, se aplica a los tres escenarios.</p>
+              {resumenInicio && <p className="font-semibold text-ink-900 first-letter:uppercase">{resumenInicio}</p>}
+              <button type="button" onClick={usarAhora} className="text-brand-500 font-semibold hover:underline">
+                Usar fecha y hora actual
+              </button>
+            </div>
           </div>
         </div>
       </Card>
@@ -172,7 +226,7 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
                 role="radio"
                 aria-checked={activo}
                 onClick={() => setEscenario(id)}
-                className={`rounded-xl border-2 p-5 flex flex-col items-center gap-3 transition-colors ${
+                className={`rounded-xl border-2 px-4 py-5 flex flex-col items-center gap-3 transition-colors ${
                   activo ? 'border-brand-500 bg-brand-50' : 'border-line-200 bg-white hover:bg-gray-50'
                 }`}
               >
@@ -188,7 +242,7 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
                 </span>
 
                 {/* Ícono: negro sin seleccionar, azul al seleccionar */}
-                <Icono className={`w-12 h-12 transition-colors ${activo ? 'text-brand-500' : 'text-ink-900'}`} />
+                <Icono className={`w-14 h-14 transition-colors ${activo ? 'text-brand-500' : 'text-ink-900'}`} />
 
                 <span className="text-xs text-ink-400 text-center">{detalle}</span>
               </button>
@@ -202,8 +256,9 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
       )}
 
       {/* ===== Semáforo (ancho completo) + botón arriba a su derecha ===== */}
-      <div className="flex flex-col md:flex-row gap-6 md:items-start">
-        <div className="flex-1 min-w-0">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:items-stretch [&&]:p-0!">
+        <div className="min-w-0 md:col-span-2 flex flex-col gap-3">
+          <div className="flex-1 flex flex-col [&>*]:flex-1 [&>*]:p-4!">
           <Card icono={Info} titulo="Rangos del semáforo de criticidad">
             <p className="text-xs text-ink-400 mb-3 -mt-2">
               Horas de holgura restante hasta el plazo límite. Cambiarlos aplica en caliente, sin reiniciar el sistema.
@@ -247,16 +302,67 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
             </div>
           </Card>
         </div>
-
+          <div className="flex justify-center p-0!">
         <button
           type="button"
           onClick={iniciar}
           disabled={iniciando}
-          className="self-end md:self-auto shrink-0 flex items-center justify-center gap-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-50 text-white font-bold px-8 py-3 text-base transition-colors"
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:bg-brand-700 disabled:opacity-50 text-white font-bold px-6 py-2.5 text-base transition-colors"
         >
           {iniciando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
           Iniciar Simulación
         </button>
+      </div>
+
+        </div>
+
+        <div className="flex flex-col gap-3">
+
+          {/* Velocidad por tipo de unidad: cambio en caliente */}
+          <div className="flex-1 flex flex-col [&>*]:flex-1 [&>*]:p-4!">
+          <Card icono={Gauge} titulo="Velocidad por tipo">
+            <div className="space-y-2 -mt-2">
+              {[
+                { etiqueta: 'Autos', valor: velAuto, cambiar: setVelAuto },
+                { etiqueta: 'Motos', valor: velMoto, cambiar: setVelMoto },
+                { etiqueta: 'Bicicletas', valor: velBici, cambiar: setVelBici },
+              ].map(({ etiqueta, valor, cambiar }) => (
+                <label key={etiqueta} className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-ink-700">{etiqueta}</span>
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={valor}
+                      onChange={(e) => cambiar(e.target.value === '' ? 0 : Number(e.target.value))}
+                      className="w-20 rounded-lg border border-ink-300 bg-white px-2 py-0.5 text-center text-sm font-bold text-ink-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    />
+                    <span className="text-xs text-ink-500">km/h</span>
+                  </span>
+                </label>
+              ))}
+              <button
+                type="button"
+                onClick={aplicarVelocidades}
+                disabled={aplicandoVel}
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-gray-200 hover:bg-gray-300 disabled:opacity-50 text-gray-700 font-bold px-4 py-1.5 text-sm transition-colors"
+              >
+                {aplicandoVel && <Loader2 className="w-4 h-4 animate-spin" />}
+                Aplicar velocidades
+              </button>
+              <p className="text-[11px] leading-tight text-ink-400">
+                En caliente: rigen desde la siguiente planificación, en el escenario elegido.
+              </p>
+              {avisoVel && (
+                <p className={`text-xs rounded-md px-2.5 py-2 ${avisoVel.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {avisoVel.texto}
+                </p>
+              )}
+            </div>
+          </Card>
+          </div>
+        </div>
       </div>
     </main>
   );

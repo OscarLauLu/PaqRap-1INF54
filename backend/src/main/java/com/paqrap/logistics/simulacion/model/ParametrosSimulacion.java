@@ -19,20 +19,20 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public class ParametrosSimulacion {
 
     @Builder.Default
-    private int numAutos = 10;
+    private int numAutos = 28;
     @Builder.Default
-    private int numMotos = 10;
+    private int numMotos = 52;
     @Builder.Default
-    private int numBicicletas = 10;
+    private int numBicicletas = 64;
     @Builder.Default
     private int capacidadAlmacenIntermedio = 1000;
     @Builder.Default
     private double tasaIncrementoPedidos = 1.0;
 
     public ParametrosSimulacion() {
-        this.numAutos = 10;
-        this.numMotos = 10;
-        this.numBicicletas = 10;
+        this.numAutos = 28;
+        this.numMotos = 52;
+        this.numBicicletas = 64;
         this.capacidadAlmacenIntermedio = 1000;
         this.tasaIncrementoPedidos = 1.0;
     }
@@ -52,9 +52,9 @@ public class ParametrosSimulacion {
      */
     public boolean validar() {
         if (numAutos <= 0 && numMotos <= 0 && numBicicletas <= 0) {
-            numAutos = 10;
-            numMotos = 10;
-            numBicicletas = 10;
+            numAutos = 28;
+            numMotos = 52;
+            numBicicletas = 64;
         }
         if (numAutos < 0 || numMotos < 0 || numBicicletas < 0) {
             return false;

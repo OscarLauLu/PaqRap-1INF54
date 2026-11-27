@@ -6,7 +6,7 @@ import { averiasApi } from '../../api/averiasApi';
 import { formatFechaHora, parseUbicacion } from '../registro/utils';
 import { Eye, EyeOff, Layers, Warehouse } from 'lucide-react';
 import { Bodega, VehiculoRealista } from '../mapa/IconosMapa';
-import { FILTROS_VACIOS, alternarCapa, capaAlmacen, type CapaMapa, type FiltrosPanel, type SemaforoUT } from '../../hooks/filtros';
+import { FILTROS_VACIOS, alternarCapa, capaAlmacen, nivelSemaforoAlmacen, type CapaMapa, type FiltrosPanel, type SemaforoUT } from '../../hooks/filtros';
 import { ListaUnidadesPanel } from './ListaUnidadesPanel';
 import { ListaAlmacenesPanel } from './ListaAlmacenesPanel';
 import { ListaEnviosPanel } from './ListaEnviosPanel';
@@ -116,16 +116,29 @@ const TituloGrupo: React.FC<{ titulo: string }> = ({ titulo }) => (
  * Abierta: borde azul suave y encabezado celeste, para saber cuál estás viendo.
  * "extra" se muestra a la derecha del título (por ejemplo, el enlace "Ver todo").
  */
+type TonoInsignia = 'rojo' | 'ambar' | 'verde' | 'gris';
+const CLASE_INSIGNIA: Record<TonoInsignia, string> = {
+  rojo: 'bg-red-100 text-red-700',
+  ambar: 'bg-amber-100 text-amber-700',
+  verde: 'bg-green-100 text-green-700',
+  gris: 'bg-gray-100 text-gray-600',
+};
+
 const Tarjeta: React.FC<{
   titulo: string;
   Icono: React.ElementType;
   abierta: boolean;
   onToggle: () => void;
   extra?: React.ReactNode;
+  /** Id para poder llevar al usuario a esta tarjeta desde la franja de alertas */
+  id?: string;
+  /** Dato clave a la vista aunque la tarjeta esté cerrada (se pone rojo o ámbar si algo va mal) */
+  insignia?: { texto: string; tono: TonoInsignia };
   children: React.ReactNode;
-}> = ({ titulo, Icono, abierta, onToggle, extra, children }) => (
+}> = ({ titulo, Icono, abierta, onToggle, extra, id, insignia, children }) => (
   <div
-    className={`rounded-xl border bg-white shadow-sm overflow-hidden transition-colors ${
+    id={id}
+    className={`scroll-mt-36 rounded-xl border bg-white shadow-sm overflow-hidden transition-colors ${
       abierta ? 'border-(--color-brand-500)/40' : 'border-(--color-line-200)'
     }`}
   >
@@ -138,6 +151,11 @@ const Tarjeta: React.FC<{
       >
         <Icono size={16} className="text-(--color-brand-500) shrink-0" />
         <span className="flex-1 min-w-0 truncate text-sm font-bold text-(--color-ink-900)">{titulo}</span>
+        {insignia && (
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${CLASE_INSIGNIA[insignia.tono]}`}>
+            {insignia.texto}
+          </span>
+        )}
       </button>
       {extra}
       <button type="button" onClick={onToggle} aria-label={abierta ? `Cerrar ${titulo}` : `Abrir ${titulo}`} className="shrink-0 p-0.5">
@@ -307,6 +325,54 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   const kmTotal = costos.reduce((s, c) => s + c.km, 0);
   const costoPorEntrega = entregados > 0 ? costoTotal / entregados : 0;
 
+  // --- Datos para la franja de alertas y las insignias de las tarjetas ---
+  const nCriticos = porCriticidad('ROJO');
+  const nAveriadas = aCount.ave + mCount.ave + bCount.ave;
+  const nEnRutaUT = aCount.ruta + mCount.ruta + bCount.ruta;
+  const nAlmCriticos = almacenes.filter((a) => nivelSemaforoAlmacen(a) === 'ROJO').length;
+  const nAlmMedios = almacenes.filter((a) => nivelSemaforoAlmacen(a) === 'AMBAR').length;
+  const semUT = filtros.semaforoUT ?? 'TODOS';
+  const semAlm = filtros.semaforoAlmacen ?? 'TODOS';
+  const nFiltros = nOcultos + (semUT !== 'TODOS' ? 1 : 0) + (semAlm !== 'TODOS' ? 1 : 0);
+
+  // Etiquetas de los filtros activos, cada una con su botón para quitarla
+  const ETQ_SEM_UT: Record<string, string> = { VACIO: 'Vacío', VERDE: 'Bajo', AMBAR: 'Medio', ROJO: 'Lleno' };
+  const ETQ_SEM_ALM: Record<string, string> = { VACIO: 'Vacío', VERDE: 'Óptimo', AMBAR: 'Medio', ROJO: 'Crítico' };
+  const chipsFiltros: { clave: string; texto: string; quitar: () => void }[] = [];
+  filtros.ocultos.forEach((capa) => {
+    const alm = almacenes.find((a) => capaAlmacen(a) === capa);
+    const nombre = alm
+      ? `Almacén ${datosAlmacen(alm).nombre}`
+      : CAPAS_VEHICULO.find((v) => v.capa === capa)?.etiqueta ?? capa;
+    chipsFiltros.push({ clave: capa, texto: `${nombre} oculto`, quitar: () => setFiltros(alternarCapa(filtros, capa)) });
+  });
+  if (semUT !== 'TODOS') {
+    chipsFiltros.push({ clave: 'semUT', texto: `Unidades: ${ETQ_SEM_UT[semUT]}`, quitar: () => setFiltros({ ...filtros, semaforoUT: 'TODOS' }) });
+  }
+  if (semAlm !== 'TODOS') {
+    chipsFiltros.push({ clave: 'semAlm', texto: `Almacenes: ${ETQ_SEM_ALM[semAlm]}`, quitar: () => setFiltros({ ...filtros, semaforoAlmacen: 'TODOS' }) });
+  }
+
+  // Abre la tarjeta indicada y se desplaza hasta ella
+  const irATarjeta = (clave: string) => {
+    setAbiertas((prev) => new Set(prev).add(clave));
+    setTimeout(() => document.getElementById(`tarjeta-${clave}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
+
+  const CLASE_KPI: Record<'rojo' | 'ambar' | 'verde' | 'azul' | 'gris', string> = {
+    rojo: 'bg-red-50 border-red-200 text-red-700',
+    ambar: 'bg-amber-50 border-amber-200 text-amber-700',
+    verde: 'bg-green-50 border-green-200 text-green-700',
+    azul: 'bg-blue-50 border-blue-200 text-blue-700',
+    gris: 'bg-gray-50 border-gray-200 text-gray-500',
+  };
+  const kpis: { clave: string; valor: string; etiqueta: string; tono: keyof typeof CLASE_KPI; ayuda: string }[] = [
+    { clave: 'riesgo', valor: String(nCriticos), etiqueta: 'Críticos', tono: nCriticos > 0 ? 'rojo' : 'gris', ayuda: 'Pedidos críticos: ver pedidos en riesgo' },
+    { clave: 'vehiculos', valor: String(nAveriadas), etiqueta: 'Averiadas', tono: nAveriadas > 0 ? 'ambar' : 'gris', ayuda: 'Unidades averiadas o en mantenimiento: ver unidades' },
+    { clave: 'vehiculos', valor: `${nEnRutaUT}/${unidades.length}`, etiqueta: 'En ruta', tono: 'verde', ayuda: 'Unidades en ruta del total: ver unidades' },
+    { clave: 'resumen', valor: `${pctCumplimiento.toFixed(0)}%`, etiqueta: 'Entregado', tono: 'azul', ayuda: 'Pedidos entregados: ver resumen' },
+  ];
+
   return (
     <div className="w-full h-full flex-shrink-0 space-y-3 overflow-y-auto pr-2 scrollbar-thin">
       {metricas.instanteColapso && (
@@ -323,10 +389,54 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         </div>
       )}
 
+      {/* ===== Franja de alertas: siempre a la vista, cada dato lleva a su tarjeta ===== */}
+      <div className="sticky top-0 z-10 space-y-2 rounded-xl border border-(--color-line-200) bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-4 gap-1.5">
+          {kpis.map((k) => (
+            <button
+              key={k.etiqueta}
+              type="button"
+              onClick={() => irATarjeta(k.clave)}
+              title={k.ayuda}
+              className={`rounded-lg border px-1.5 py-1.5 text-center transition-opacity hover:opacity-80 ${CLASE_KPI[k.tono]}`}
+            >
+              <div className="text-[15px] font-extrabold leading-tight">{k.valor}</div>
+              <div className="text-[10px] font-semibold leading-tight">{k.etiqueta}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Filtros activos: así nadie olvida que dejó uno puesto */}
+        {nFiltros > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {chipsFiltros.map((c) => (
+              <span
+                key={c.clave}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700"
+              >
+                {c.texto}
+                <button type="button" onClick={c.quitar} aria-label={`Quitar filtro: ${c.texto}`} className="hover:text-blue-900">
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => setFiltros(FILTROS_VACIOS)}
+              className="text-[11px] font-semibold text-(--color-brand-500) hover:underline"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* ===== Mostrar en el mapa: encender o apagar cada tipo de vehículo y cada almacén ===== */}
       <Tarjeta
         titulo="Mostrar en el mapa"
         Icono={Layers}
+        id="tarjeta-mapa"
+        insignia={nFiltros > 0 ? { texto: `${nFiltros} ${nFiltros === 1 ? 'filtro' : 'filtros'}`, tono: 'ambar' } : undefined}
         abierta={abiertas.has('mapa')}
         onToggle={() => toggleSection('mapa')}
         extra={
@@ -404,7 +514,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         {/* Filtro global por semáforo de ocupación de Almacenes (Sí4) */}
         <div className="pt-2.5 mt-2.5 border-t border-gray-100">
           <span className="block text-[11px] font-bold text-(--color-ink-500) mb-1.5 uppercase tracking-wide">
-            Filtrar almacenes por semáforo de stock (Sí4)
+            Filtrar almacenes por semáforo de stock
           </span>
           <div className="flex items-center gap-1">
             {(['TODOS', 'VACIO', 'VERDE', 'AMBAR', 'ROJO'] as const).map((sem) => {
@@ -430,7 +540,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
 
       {/* Registrar avería: en la operación diaria y en las simulaciones, porque las averías ocurren en plena marcha */}
       {/* Registrar avería (siempre visible; las averías se registran manualmente durante la simulación) */}
-      <Tarjeta titulo="Registrar avería" Icono={Wrench} abierta={abiertas.has('averia')} onToggle={() => toggleSection('averia')}>
+      <Tarjeta titulo="Registrar avería" Icono={Wrench} id="tarjeta-averia" insignia={nAveriadas > 0 ? { texto: `${nAveriadas} ${nAveriadas === 1 ? 'averiada' : 'averiadas'}`, tono: 'ambar' } : undefined} abierta={abiertas.has('averia')} onToggle={() => toggleSection('averia')}>
       <div className="space-y-3">
 
         <label className="block">
@@ -484,7 +594,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
 
 
       {/* ===== Resumen de pedidos: avance, etapas y criticidad de lo que falta entregar ===== */}
-      <Tarjeta titulo="Resumen de pedidos" Icono={ClipboardList} abierta={abiertas.has('resumen')} onToggle={() => toggleSection('resumen')}>
+      <Tarjeta titulo="Resumen de pedidos" Icono={ClipboardList} id="tarjeta-resumen" insignia={{ texto: `${pctCumplimiento.toFixed(0)} %`, tono: 'verde' }} abierta={abiertas.has('resumen')} onToggle={() => toggleSection('resumen')}>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={18} className="text-green-600" />
@@ -522,6 +632,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       <Tarjeta
         titulo={`Pedidos en riesgo (${enRiesgo.length})`}
         Icono={Siren}
+        id="tarjeta-riesgo"
+        insignia={{ texto: nCriticos > 0 ? `${nCriticos} ${nCriticos === 1 ? 'crítico' : 'críticos'}` : 'sin críticos', tono: nCriticos > 0 ? 'rojo' : 'gris' }}
         abierta={abiertas.has('riesgo')}
         onToggle={() => toggleSection('riesgo')}
       >
@@ -551,7 +663,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       </Tarjeta>
 
       {/* ===== Vehículos: resumen y lista detallada de UT con semáforo y pedidos ===== */}
-      <Tarjeta titulo={`Unidades de Transporte (${unidades.length})`} Icono={CarIcon} abierta={abiertas.has('vehiculos')} onToggle={() => toggleSection('vehiculos')}>
+      <Tarjeta titulo={`Unidades de Transporte (${unidades.length})`} Icono={CarIcon} id="tarjeta-vehiculos" insignia={{ texto: `${nEnRutaUT} en ruta`, tono: 'gris' }} abierta={abiertas.has('vehiculos')} onToggle={() => toggleSection('vehiculos')}>
         <div className="space-y-3">
           <table className="w-full text-[13px] text-(--color-ink-500) text-center">
             <thead>
@@ -595,7 +707,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       </Tarjeta>
 
       {/* ===== Almacenes: Lista detallada con stock, semáforo y flujos de 4h ===== */}
-      <Tarjeta titulo="Almacenes e Inventario" Icono={Warehouse} abierta={abiertas.has('almacenes')} onToggle={() => toggleSection('almacenes')}>
+      <Tarjeta titulo="Almacenes e Inventario" Icono={Warehouse} id="tarjeta-almacenes" insignia={nAlmCriticos > 0 ? { texto: `${nAlmCriticos} ${nAlmCriticos === 1 ? 'crítico' : 'críticos'}`, tono: 'rojo' } : nAlmMedios > 0 ? { texto: `${nAlmMedios} en medio`, tono: 'ambar' } : { texto: 'óptimo', tono: 'verde' }} abierta={abiertas.has('almacenes')} onToggle={() => toggleSection('almacenes')}>
         <ListaAlmacenesPanel
           almacenes={almacenes}
           pedidos={pedidos}
@@ -609,6 +721,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       <Tarjeta
         titulo={`Envíos y productos (${pedidos.length})`}
         Icono={Package}
+        id="tarjeta-envios"
+        insignia={{ texto: `${enRuta} en ruta`, tono: 'gris' }}
         abierta={abiertas.has('envios')}
         onToggle={() => toggleSection('envios')}
       >
@@ -625,7 +739,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       </Tarjeta>
 
       {/* ===== Incidencias ===== */}
-      <Tarjeta titulo="Incidencias" Icono={AlertTriangle} abierta={abiertas.has('incidencias')} onToggle={() => toggleSection('incidencias')}>
+      <Tarjeta titulo="Incidencias" Icono={AlertTriangle} id="tarjeta-incidencias" insignia={{ texto: String(metricas.bloqueosOcurridos + metricas.averiasOcurridas), tono: 'gris' }} abierta={abiertas.has('incidencias')} onToggle={() => toggleSection('incidencias')}>
         <div className="space-y-3 text-sm text-(--color-ink-700)">
           <div className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
             <span className="flex items-center text-red-600 font-medium"><AlertCircle size={16} className="mr-2" /> Bloqueos ocurridos</span>
@@ -639,7 +753,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       </Tarjeta>
 
       {/* ===== Costo acumulado (en soles): total, reparto por tipo, km y costo por entrega ===== */}
-      <Tarjeta titulo="Costo acumulado" Icono={IconoSoles} abierta={abiertas.has('costo')} onToggle={() => toggleSection('costo')}>
+      <Tarjeta titulo="Costo acumulado" Icono={IconoSoles} id="tarjeta-costo" insignia={{ texto: formatSoles(costoTotal), tono: 'gris' }} abierta={abiertas.has('costo')} onToggle={() => toggleSection('costo')}>
         <div className="space-y-3 text-[13px]">
           <div className="text-center">
             <div className="text-2xl font-extrabold text-(--color-ink-900)">{formatSoles(costoTotal)}</div>

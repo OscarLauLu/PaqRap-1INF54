@@ -92,7 +92,7 @@ export const App: React.FC = () => {
   const stockTotalAlms = almsIntermedios.reduce((acc, a) => acc + (a.stockActual || 0), 0);
   const capTotalAlms = almsIntermedios.reduce((acc, a) => acc + (a.capacidadMaxima || 1000), 0);
   const pctOcupacionAlms = capTotalAlms > 0 ? Math.round((stockTotalAlms / capTotalAlms) * 100) : 0;
-  const semAlms = pctOcupacionAlms === 0 ? 'VACIO' : pctOcupacionAlms <= 50 ? 'VERDE' : pctOcupacionAlms <= 85 ? 'AMBAR' : 'ROJO';
+  const semAlms = pctOcupacionAlms === 0 ? 'VACIO' : pctOcupacionAlms <= 15 ? 'ROJO' : pctOcupacionAlms <= 50 ? 'AMBAR' : 'VERDE';
   const semAlmsColor = semAlms === 'ROJO' ? '#EF4444' : semAlms === 'AMBAR' ? '#F59E0B' : semAlms === 'VERDE' ? '#22C55E' : '#9CA3AF';
 
   // Bloqueos para dibujarlos en el mapa (el mapa solo muestra los que están activos ahora)
