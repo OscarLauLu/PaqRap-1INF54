@@ -508,6 +508,38 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     (Array.isArray(unidades) ? unidades : []).filter((u) => u.estadoOperativo === 'AVERIADA').map((u) => u.codigo),
   );
 
+  const rutaDe = useMemo(() => new Map(rutas.map((r) => [r.unidadCodigo, r])), [rutas]);
+  const rutaDeRef = useRef(rutaDe);
+  rutaDeRef.current = rutaDe;
+  const almacenesRef = useRef(almacenes);
+  almacenesRef.current = almacenes;
+
+  /** Determina si una coordenada (x, y) coincide con la ubicación de algún almacén */
+  const esPosicionAlmacen = (x: number, y: number): boolean =>
+    almacenes.some(
+      (alm) =>
+        alm.ubicacion &&
+        Math.abs(alm.ubicacion.posX - x) < 0.1 &&
+        Math.abs(alm.ubicacion.posY - y) < 0.1,
+    );
+
+  /** Determina si un vehículo se encuentra en ruta activa */
+  const estaEnRuta = (u: UnidadTransporte): boolean => {
+    if (u.estadoOperativo !== 'EN_RUTA') return false;
+    const r = rutaDe.get(u.codigo);
+    if (!r) return false;
+    const ms = mostradoRef.current;
+    if (ms !== null && r.horario) {
+      if (ms < r.horario.salida) return false;
+      if (r.horario.retorno !== undefined && ms >= r.horario.retorno) return false;
+    }
+    const tienePendientes = (r.codigosPedidos?.length ?? 0) > 0;
+    if (!tienePendientes && esPosicionAlmacen(u.ubicacionActual.posX, u.ubicacionActual.posY)) {
+      return false;
+    }
+    return true;
+  };
+
   /** Línea de lo que le falta recorrer: desde donde está dibujado el vehículo hasta el final del camino */
   const caminoRestante = (tr: Trazado, s: number, x: number, y: number): string => {
     const partes = [`M ${toSvgX(x)} ${toSvgY(y)}`];
@@ -529,6 +561,25 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       if (!tr || !nodo) return;
       const s = distanciaEn(h, msVisible);
       const { x, y, ang } = puntoEn(tr, s);
+
+      // Si el vehículo está en la misma posición que el almacén y no está en ruta activa, desaparece del mapa
+      const enAlm = almacenesRef.current.some(
+        (alm) =>
+          alm.ubicacion &&
+          Math.abs(alm.ubicacion.posX - x) < 0.1 &&
+          Math.abs(alm.ubicacion.posY - y) < 0.1,
+      );
+      const r = rutaDeRef.current.get(codigo);
+      const antesDeSalida = r?.horario ? msVisible < r.horario.salida : msVisible < h.t[0];
+      const despuesDeRetorno = r?.horario?.retorno !== undefined && msVisible >= r.horario.retorno;
+
+      if (enAlm && (antesDeSalida || despuesDeRetorno)) {
+        nodo.style.display = 'none';
+        lineaRuta.current.get(codigo)?.setAttribute('d', '');
+        return;
+      }
+      nodo.style.display = '';
+
       nodo.setAttribute('transform', `translate(${toSvgX(x)} ${toSvgY(y)})`);
       giroVehiculo.current.get(codigo)?.setAttribute('transform', `rotate(${-ang})`);
       lineaRuta.current.get(codigo)?.setAttribute('d', caminoRestante(tr, s, x, y));
@@ -614,10 +665,8 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
   }, [unidades, trazados, pausado, horarios, relojDisponible]);
 
   // ---- Qué vehículos se dibujan ----
-  // Solo los que tienen trabajo: con ruta, en ruta, que se movieron hace poco o averiados (y el
-  // seleccionado). Los que esperan sin trabajo en el almacén no se dibujan, para no amontonar íconos;
-  // su cantidad se ve en el panel de Vehículos.
-  const rutaDe = new Map(rutas.map((r) => [r.unidadCodigo, r]));
+  // Cuando los vehículos estén en la misma posición que el almacén y no estén en ruta, desaparecen del mapa.
+  // Solo se dibujan los que tienen trabajo y no están inactivos en el almacén.
   const ahoraMs = Date.now();
   const VENTANA_MOVIMIENTO_MS = 60000; // sigue visible un rato tras moverse (p. ej. mientras entrega)
   const conTrabajo = new Set<string>();
@@ -626,6 +675,12 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     const cambio = !!ult && (ult.x !== u.ubicacionActual.posX || ult.y !== u.ubicacionActual.posY);
     const t = cambio ? ahoraMs : ult?.t ?? 0;
     ultimoMovimiento.current.set(u.codigo, { x: u.ubicacionActual.posX, y: u.ubicacionActual.posY, t });
+
+    const enAlm = esPosicionAlmacen(u.ubicacionActual.posX, u.ubicacionActual.posY);
+    const enRuta = estaEnRuta(u);
+    // Si está en el almacén y no está en ruta, no debe considerarse como activo en el mapa
+    if (enAlm && !enRuta) return;
+
     if (
       rutaDe.has(u.codigo) ||
       u.estadoOperativo === 'EN_RUTA' ||
@@ -636,7 +691,14 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
       conTrabajo.add(u.codigo);
     }
   });
-  const visibles = SOLO_VEHICULOS_CON_TRABAJO ? unidades.filter((u) => conTrabajo.has(u.codigo)) : unidades;
+
+  const visibles = (SOLO_VEHICULOS_CON_TRABAJO ? unidades.filter((u) => conTrabajo.has(u.codigo)) : unidades).filter(
+    (u) => {
+      const enAlm = esPosicionAlmacen(u.ubicacionActual.posX, u.ubicacionActual.posY);
+      const enRuta = estaEnRuta(u);
+      return !(enAlm && !enRuta);
+    },
+  );
 
   // Tipo de avería de cada vehículo: del propio vehículo si el backend lo manda; si no, de la lista de averías
   const tipoAveriaDe = (u: UnidadTransporte): string => tipoAveriaInformado(u) ?? '1';
@@ -656,6 +718,16 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
     window.addEventListener('keydown', alTeclear);
     return () => window.removeEventListener('keydown', alTeclear);
   }, [seleccion]);
+
+  // Si el vehículo seleccionado está en el almacén y no está en ruta, cerrar el popup
+  useEffect(() => {
+    if (seleccion?.tipo === 'vehiculo') {
+      const u = unidades.find((x) => x.codigo === seleccion.codigo);
+      if (u && esPosicionAlmacen(u.ubicacionActual.posX, u.ubicacionActual.posY) && !estaEnRuta(u)) {
+        setSeleccion(null);
+      }
+    }
+  }, [seleccion, unidades, almacenes]);
 
   // El popup sigue a su ícono en cada cuadro (el vehículo se mueve, y el mapa se arrastra o hace zoom)
   useEffect(() => {
@@ -918,10 +990,18 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
           const unidadRuta = unidades.find((u) => u.codigo === r.unidadCodigo);
           if (unidadRuta && !pasaFiltroUnidad(unidadRuta, filtros)) return null; // vehículo oculto con los filtros
           const colorRuta = unidadRuta ? COLOR_TIPO[unidadRuta.tipoNombre] ?? '#6B7280' : '#6B7280';
+          if (
+            unidadRuta &&
+            esPosicionAlmacen(unidadRuta.ubicacionActual.posX, unidadRuta.ubicacionActual.posY) &&
+            !estaEnRuta(unidadRuta)
+          ) {
+            return null; // si la unidad está en el almacén y no en ruta, no mostrar trazo residual
+          }
           const codigoSel = seleccion?.tipo === 'vehiculo' ? seleccion.codigo : selectedUnidadCodigo;
           const contienePedidoSel = !!selectedPedidoCodigo && (r.codigosPedidos?.includes(selectedPedidoCodigo) ?? false);
           const esSel = (codigoSel === r.unidadCodigo) || contienePedidoSel;
           const hayOtraSel = (!!codigoSel && !esSel) || (!!selectedPedidoCodigo && !contienePedidoSel);
+          const colorRuta = (unidadRuta && COLOR_TIPO[unidadRuta.tipoNombre]) ?? '#2563EB';
           let d: string;
           const trazado = trazados.get(r.unidadCodigo);
           const dibujado = recorrido.current.get(r.unidadCodigo);
