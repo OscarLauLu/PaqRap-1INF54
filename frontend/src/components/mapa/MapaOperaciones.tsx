@@ -1287,7 +1287,7 @@ export const MapaOperaciones: React.FC<MapaOperacionesProps> = ({
 
       {/* Indicadores globales de ocupación (G01–G04): esquina superior izquierda del mapa */}
       {ocupacionGlobal && (
-        <div className="absolute top-3 left-3 z-10 w-48 rounded-lg border border-gray-200 bg-white/95 shadow-sm px-3 py-2 select-none">
+        <div className="absolute top-3 left-3 z-10 w-48 rounded-lg border border-gray-200 bg-white/60 backdrop-blur-sm shadow-sm px-3 py-2 select-none">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Ocupación global</div>
           {([
             ['Flota', ocupacionGlobal.flota],
