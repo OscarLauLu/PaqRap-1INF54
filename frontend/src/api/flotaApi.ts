@@ -37,4 +37,12 @@ export const flotaApi = {
       origenManual: true,
     });
   },
+
+  /**
+   * Cambia en caliente la velocidad de un tipo de vehículo ("Auto", "Moto" o "Bicicleta").
+   * ActualizarTipoVehiculoDTO.java: solo se envía lo que se quiere cambiar.
+   */
+  async actualizarVelocidadTipo(tipoNombre: string, nuevaVelocidadKmH: number) {
+    return apiClient.put(`/api/flota/configuracion/${encodeURIComponent(tipoNombre)}`, { nuevaVelocidadKmH });
+  },
 };
