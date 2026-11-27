@@ -17,11 +17,11 @@ const ESCENARIOS: { id: TipoEscenario; titulo: string; detalle: string; Icono: R
   { id: 'COLAPSO_LOGISTICO', titulo: 'Simulación de colapso', detalle: 'Corre hasta que un solo pedido incumpla su plazo límite.', Icono: AlertTriangle },
 ];
 
-// Flota por defecto y capacidad reglamentaria de almacenes intermedios
+// Flota fijada por el docente (autos 28, motos 52, bicicletas 64) y capacidad de almacenes intermedios
 const FLOTA_POR_DEFECTO = {
-  numAutos: 10,
-  numMotos: 10,
-  numBicicletas: 10,
+  numAutos: 28,
+  numMotos: 52,
+  numBicicletas: 64,
   capacidadAlmacenIntermedio: 1000,
   tasaIncrementoPedidos: 1.0,
 };
@@ -54,12 +54,6 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
         }) + ` · ${horaInicio} h`
       : null;
 
-  // Flota y almacenes: valores iniciales reglamentarios, editables antes de iniciar
-  const [numAutos, setNumAutos] = useState(FLOTA_POR_DEFECTO.numAutos);
-  const [numMotos, setNumMotos] = useState(FLOTA_POR_DEFECTO.numMotos);
-  const [numBicicletas, setNumBicicletas] = useState(FLOTA_POR_DEFECTO.numBicicletas);
-  const [capacidadAlmacen, setCapacidadAlmacen] = useState(FLOTA_POR_DEFECTO.capacidadAlmacenIntermedio);
-
   const [horasVerde, setHorasVerde] = useState(12);
   const [horasAmbar, setHorasAmbar] = useState(4);
 
@@ -84,29 +78,6 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
       setIniciando(false);
       return;
     }
-    const cantidades = [numAutos, numMotos, numBicicletas, capacidadAlmacen];
-    if (cantidades.some((n) => !Number.isInteger(n) || n < 0)) {
-      setError('La flota y la capacidad deben ser números enteros, sin negativos.');
-      setIniciando(false);
-      return;
-    }
-    if (numAutos + numMotos + numBicicletas < 1) {
-      setError('La flota debe tener al menos una unidad de transporte.');
-      setIniciando(false);
-      return;
-    }
-    if (capacidadAlmacen < 1) {
-      setError('La capacidad de los almacenes debe ser de al menos 1.');
-      setIniciando(false);
-      return;
-    }
-    const flota = {
-      ...FLOTA_POR_DEFECTO,
-      numAutos,
-      numMotos,
-      numBicicletas,
-      capacidadAlmacenIntermedio: capacidadAlmacen,
-    };
     if (horasAmbar >= horasVerde) {
       setError('El umbral Ámbar debe ser menor que el umbral Verde.');
       setIniciando(false);
@@ -123,7 +94,7 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
         }
         try {
           await simulacionApi.configurar({
-            ...flota,
+            ...FLOTA_POR_DEFECTO,
             fechaHoraInicio: `${fechaInicio}T${horaInicio}:00`,
           });
         } catch (e) {
@@ -158,7 +129,7 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
       }
       try {
         await simulacionApi.configurar({
-          ...flota,
+          ...FLOTA_POR_DEFECTO,
           archivoPedidos: undefined,
           archivoBloqueos: undefined,
           fechaHoraInicio: `${fechaInicio}T${horaInicio}:00`,
@@ -210,33 +181,6 @@ export const ConfiguracionPage: React.FC<Props> = ({ onSimulacionIniciada }) => 
             </div>
           </div>
         </div>
-      </Card>
-
-      {/* ===== Flota y almacenes ===== */}
-      <Card icono={Truck} titulo="Flota y almacenes">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 -mt-3">
-          {[
-            { etiqueta: 'Autos', valor: numAutos, cambiar: setNumAutos },
-            { etiqueta: 'Motos', valor: numMotos, cambiar: setNumMotos },
-            { etiqueta: 'Bicicletas', valor: numBicicletas, cambiar: setNumBicicletas },
-            { etiqueta: 'Capacidad de almacenes intermedios', valor: capacidadAlmacen, cambiar: setCapacidadAlmacen },
-          ].map(({ etiqueta, valor, cambiar }) => (
-            <label key={etiqueta} className="block">
-              <span className="block text-sm font-semibold text-ink-700 mb-1.5">{etiqueta}</span>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={valor}
-                onChange={(e) => cambiar(e.target.value === '' ? 0 : Number(e.target.value))}
-                className={inputBase}
-              />
-            </label>
-          ))}
-        </div>
-        <p className="text-xs text-ink-400 mt-3">
-          Cantidad de unidades de transporte (UT) por tipo y capacidad de los almacenes intermedios. El almacén central no tiene límite.
-        </p>
       </Card>
 
       {/* ===== Selecciona el escenario ===== */}
