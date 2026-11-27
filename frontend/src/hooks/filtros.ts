@@ -34,17 +34,17 @@ export const nivelSemaforoUT = (u: UnidadTransporte): 'VACIO' | 'VERDE' | 'AMBAR
 
 /** Clasifica la ocupación de un almacén en niveles de semáforo + vacío */
 export const nivelSemaforoAlmacen = (a: Almacen): 'VACIO' | 'VERDE' | 'AMBAR' | 'ROJO' => {
-  if (a.tipo === 'CENTRAL') return 'VERDE'; // Almacén central tiene stock infinito
+  // Central: stock ilimitado, siempre óptimo.
+  if (a.tipo === 'CENTRAL') return 'VERDE';
   const stock = a.stockActual ?? 0;
   const cap = a.capacidadMaxima || 1000;
   const pct = (stock / cap) * 100;
+  // Semáforo de ABASTECIMIENTO: lo crítico es tener POCO stock.
   if (stock <= 0) return 'VACIO';
-  if (pct <= 50) return 'VERDE';
-  if (pct <= 85) return 'AMBAR';
-  return 'ROJO';
+  if (pct <= 15) return 'ROJO';
+  if (pct <= 50) return 'AMBAR';
+  return 'VERDE';
 };
-
-/** El vehículo se dibuja si su tipo no está oculto y coincide con el semáforo seleccionado */
 export const pasaFiltroUnidad = (u: UnidadTransporte, f?: FiltrosPanel): boolean => {
   if (!f) return true;
   if (f.ocultos.includes(u.tipoNombre)) return false;

@@ -16,9 +16,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      # "mysql" = MySQL de la VM del equipo (esquema por Hibernate) | "default" = H2 en memoria
-      # | "rds" = Postgres (legado: requiere levantar el servicio "db" con --profile with-postgres)
-      - SPRING_PROFILES_ACTIVE=${PAQRAP_PERFIL_OPERACION:-mysql}
+      # "default" = H2 en memoria (valor por defecto: así nadie necesita MySQL para desarrollar)
+      # "mysql" = MySQL de la VM del equipo (esquema por Hibernate). Solo el .env de la VM lo activa:
+      #           PAQRAP_PERFIL_OPERACION=mysql
+      # "rds" = Postgres (legado: requiere levantar el servicio "db" con --profile with-postgres)
+      - SPRING_PROFILES_ACTIVE=${PAQRAP_PERFIL_OPERACION:-default}
       - PAQRAP_MODO=OPERACION
       # Conexión a la BD de operación (MySQL en la VM). Define APP_DB_* en .env (ver .env.example).
       # host.docker.internal = la máquina donde corre Docker (la VM en el despliegue).
